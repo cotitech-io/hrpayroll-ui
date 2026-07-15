@@ -88,7 +88,7 @@ export function EmployerPage() {
   if (!isConnected) {
     return (
       <div>
-        <p>Connect a wallet to create or fund a payroll campaign.</p>
+        <p>Connect a wallet to create or fund a payroll.</p>
       </div>
     )
   }
@@ -110,55 +110,57 @@ export function EmployerPage() {
           </label>
 
           <h2 style={{ marginTop: '2rem' }}>Roster</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>Index</th>
-                <th style={{ textAlign: 'left' }}>Recipient address</th>
-                <th style={{ textAlign: 'left' }}>Amount (pPUSD)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i}>
-                  <td>{i}</td>
-                  <td>
-                    <input
-                      type="text"
-                      style={{ width: '100%' }}
-                      value={row.recipient}
-                      onChange={(e) => updateRow(i, 'recipient', e.target.value)}
-                      placeholder="0x…"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      style={{ width: '100%' }}
-                      value={row.amount}
-                      onChange={(e) => updateRow(i, 'amount', e.target.value)}
-                      placeholder="2500"
-                    />
-                  </td>
-                  <td>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => removeRow(i)}
-                      disabled={rows.length === 1}
-                    >
-                      Remove
-                    </Button>
-                  </td>
+          <div className="bg-card border border-border rounded-lg p-4">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Index</th>
+                  <th style={{ textAlign: 'left' }}>Recipient address</th>
+                  <th style={{ textAlign: 'left' }}>Amount (pPUSD)</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <Button type="button" variant="secondary" onClick={addRow} className="mt-2">
-            Add row
-          </Button>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i}>
+                    <td>{i}</td>
+                    <td>
+                      <input
+                        type="text"
+                        style={{ width: '100%' }}
+                        value={row.recipient}
+                        onChange={(e) => updateRow(i, 'recipient', e.target.value)}
+                        placeholder="0x…"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        style={{ width: '100%' }}
+                        value={row.amount}
+                        onChange={(e) => updateRow(i, 'amount', e.target.value)}
+                        placeholder="2500"
+                      />
+                    </td>
+                    <td>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeRow(i)}
+                        disabled={rows.length === 1}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Button type="button" variant="secondary" onClick={addRow} className="mt-2">
+              Add row
+            </Button>
+          </div>
 
           <details style={{ marginTop: '0.75rem' }}>
             <summary>Paste CSV instead (address,amount per line)</summary>
@@ -181,6 +183,7 @@ export function EmployerPage() {
 
           <Button
             type="button"
+            className="mt-4"
             disabled={!isUnlocked || roster.length === 0 || createCampaign.isPending}
             onClick={() =>
               createCampaign.mutate(

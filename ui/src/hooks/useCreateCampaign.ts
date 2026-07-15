@@ -126,10 +126,14 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
       // must submit transactions there, which the NetworkGuard (hardcoded to Fuji as the
       // app's target network) doesn't know about. Expect a brief "wrong network" overlay
       // during this section; it clears once we switch back to Fuji below.
+      // Re-asserted before every wallet write below, not just once up front — some wallets
+      // silently drift back to the previously-active chain between prompts (e.g. after a
+      // signMessageAsync round trip), and switchChainAsync is a no-op if already on target.
       stage('Switching to COTI testnet…')
       await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
 
       stage('Registering run on COTI…')
+      await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
       const registerRunHash = await writeContractAsync({
         ...cotiTestnetContracts.privatePayrollCoti,
         functionName: 'registerRun',
@@ -146,6 +150,7 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
           signerAddress: address,
           signMessageAsync,
         })
+        await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
         const registerLeafHash = await writeContractAsync({
           ...cotiTestnetContracts.privatePayrollCoti,
           functionName: 'registerLeaf',
@@ -160,6 +165,7 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
 
       for (const pkg of tree.packages) {
         stage(`Registering leaf ${pkg.index + 1}/${tree.packages.length} on facade…`)
+        await switchChainAsync({ chainId: AVAX_CHAIN_ID })
         const registerFacadeHash = await writeContractAsync({
           address: facadeAddress,
           abi: avaxContracts.payrollCampaignFacade.abi,

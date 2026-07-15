@@ -30,8 +30,15 @@ function PTokenBalance() {
   }
 
   return (
-    <p>
-      pPUSD balance: <strong>{balance ?? '—'}</strong>{' '}
+    <p style={{ marginBottom: '1rem' }}>
+      <a
+        href={`https://testnet.snowtrace.io/address/${avaxContracts.pToken.address}`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        pPUSD
+      </a>{' '}
+      balance: <strong>{balance ?? '—'}</strong>{' '}
       <button type="button" onClick={refresh} disabled={!sessionAesKey || isFetching}>
         {isFetching ? 'Refreshing…' : 'Refresh balance'}
       </button>
