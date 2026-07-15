@@ -3,8 +3,10 @@ import { parseUnits, type Hex } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { Button } from '../components/ui/button'
+import { Modal } from '../components/ui/modal'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
+import { useEmployerCampaigns } from '../hooks/useEmployerCampaigns'
 import { useFundCampaign } from '../hooks/useFundCampaign'
 import { downloadClaimPackage } from '../lib/claimPackage'
 import type { RosterEntry } from '../lib/merkle'
@@ -34,6 +36,48 @@ function toRoster(rows: RosterRow[]): RosterEntry[] {
   }))
 }
 
+function PreviousCampaigns() {
+  const { data: campaigns, isLoading, error } = useEmployerCampaigns()
+
+  if (isLoading) return <p style={{ opacity: 0.7 }}>Loading your previous campaigns…</p>
+  if (error) return <p style={{ color: 'crimson' }}>{(error as Error).message}</p>
+  if (!campaigns || campaigns.length === 0) return null
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-4" style={{ marginBottom: '2rem' }}>
+      <h2 className="font-bold" style={{ marginTop: 0, marginBottom: '1rem' }}>List Payroll</h2>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>Run ID</th>
+            <th style={{ textAlign: 'left' }}>Name</th>
+            <th style={{ textAlign: 'left' }}>Facade</th>
+            <th style={{ textAlign: 'left' }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {campaigns.map((c) => (
+            <tr key={c.facadeAddress}>
+              <td>{c.runId.toString()}</td>
+              <td>{c.campaignName}</td>
+              <td>
+                <a
+                  href={`https://testnet.snowtrace.io/address/${c.facadeAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {c.facadeAddress.slice(0, 6)}…{c.facadeAddress.slice(-4)}
+                </a>
+              </td>
+              <td>{c.hasExpired ? 'Expired' : 'Active'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function VaultOwnerCheck() {
   const { address } = useAccount()
   const { data: owner } = useReadContract({
@@ -57,6 +101,7 @@ export function EmployerPage() {
 
   const [rows, setRows] = useState<RosterRow[]>([{ recipient: '', amount: '' }])
   const [csvText, setCsvText] = useState('')
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false)
   const [campaignName, setCampaignName] = useState('Q1 Payroll')
   const [fundAmount, setFundAmount] = useState('')
   const [stage, setStage] = useState<string | null>(null)
@@ -97,103 +142,114 @@ export function EmployerPage() {
     <div>
       <VaultOwnerCheck />
 
+      <PreviousCampaigns />
+
       {!result && (
         <>
-          <label>
-            Payroll Name
-            <input
-              type="text"
-              style={{ width: '100%' }}
-              value={campaignName}
-              onChange={(e) => setCampaignName(e.target.value)}
-            />
-          </label>
-
-          <h2 style={{ marginTop: '2rem' }}>Roster</h2>
           <div className="bg-card border border-border rounded-lg p-4">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Index</th>
-                  <th style={{ textAlign: 'left' }}>Recipient address</th>
-                  <th style={{ textAlign: 'left' }}>Amount (pPUSD)</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr key={i}>
-                    <td>{i}</td>
-                    <td>
-                      <input
-                        type="text"
-                        style={{ width: '100%' }}
-                        value={row.recipient}
-                        onChange={(e) => updateRow(i, 'recipient', e.target.value)}
-                        placeholder="0x…"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        style={{ width: '100%' }}
-                        value={row.amount}
-                        onChange={(e) => updateRow(i, 'amount', e.target.value)}
-                        placeholder="2500"
-                      />
-                    </td>
-                    <td>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeRow(i)}
-                        disabled={rows.length === 1}
-                      >
-                        Remove
-                      </Button>
-                    </td>
+            <h2 className="font-bold" style={{ marginTop: 0 }}>Add Payroll</h2>
+
+            <label>
+              <input
+                type="text"
+                style={{ width: '100%' }}
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="Payroll name"
+              />
+            </label>
+
+            <h2 style={{ marginTop: '2rem' }}>Roster</h2>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Index</th>
+                    <th style={{ textAlign: 'left' }}>Recipient address</th>
+                    <th style={{ textAlign: 'left' }}>Amount (pPUSD)</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <Button type="button" variant="secondary" onClick={addRow} className="mt-2">
-              Add row
-            </Button>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i}>
+                      <td>{i}</td>
+                      <td>
+                        <input
+                          type="text"
+                          style={{ width: '100%' }}
+                          value={row.recipient}
+                          onChange={(e) => updateRow(i, 'recipient', e.target.value)}
+                          placeholder="0x…"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          style={{ width: '100%' }}
+                          value={row.amount}
+                          onChange={(e) => updateRow(i, 'amount', e.target.value)}
+                          placeholder="2500"
+                        />
+                      </td>
+                      <td>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeRow(i)}
+                          disabled={rows.length === 1}
+                        >
+                          Remove
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex gap-2 mt-2">
+                <Button type="button" variant="secondary" onClick={addRow}>
+                  Add row
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setIsCsvModalOpen(true)}>
+                  Paste CSV
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!isUnlocked || roster.length === 0 || createCampaign.isPending}
+                  onClick={() =>
+                    createCampaign.mutate(
+                      { roster, campaignName },
+                      { onSuccess: (data) => setResult(data) },
+                    )
+                  }
+                >
+                  {createCampaign.isPending ? 'Deploying…' : 'Deploy Payroll'}
+                </Button>
+              </div>
+            </div>
           </div>
 
-          <details style={{ marginTop: '0.75rem' }}>
-            <summary>Paste CSV instead (address,amount per line)</summary>
+          <Modal open={isCsvModalOpen} onClose={() => setIsCsvModalOpen(false)} title="Paste CSV">
             <textarea
-              rows={5}
-              style={{ width: '100%', fontFamily: 'monospace', marginTop: '0.5rem' }}
+              rows={8}
+              style={{ width: '100%', fontFamily: 'monospace' }}
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
               placeholder={'0xabc...,2500\n0xdef...,1800'}
             />
-            <Button type="button" variant="secondary" onClick={applyCsv} className="mt-2">
+            <Button
+              type="button"
+              onClick={() => {
+                applyCsv()
+                setIsCsvModalOpen(false)
+              }}
+              className="mt-2"
+            >
               Load CSV into roster
             </Button>
-          </details>
+          </Modal>
 
-          <p>
-            {roster.length} recipient(s), total {(Number(totalAmount) / 10 ** PTOKEN_DECIMALS).toLocaleString()}{' '}
-            pPUSD
-          </p>
-
-          <Button
-            type="button"
-            className="mt-4"
-            disabled={!isUnlocked || roster.length === 0 || createCampaign.isPending}
-            onClick={() =>
-              createCampaign.mutate(
-                { roster, campaignName },
-                { onSuccess: (data) => setResult(data) },
-              )
-            }
-          >
-            {createCampaign.isPending ? 'Deploying…' : 'Deploy Payroll'}
-          </Button>
           {createCampaign.isPending && stage && <p style={{ opacity: 0.7 }}>{stage}</p>}
           {createCampaign.error && <p style={{ color: 'crimson' }}>{(createCampaign.error as Error).message}</p>}
         </>
