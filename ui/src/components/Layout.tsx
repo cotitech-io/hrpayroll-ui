@@ -4,14 +4,18 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { PrivateAccessButton } from './PrivateAccessButton'
 import { ThemeToggle } from './ThemeToggle'
 
+function navLinkClassName({ isActive }: { isActive: boolean }): string {
+  return isActive ? 'text-primary font-semibold' : 'text-foreground opacity-70 hover:opacity-100'
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center justify-between px-6 py-4 border-b border-border">
         <nav className="flex gap-5">
-          <NavLink to="/" className="text-foreground">Activity</NavLink>
-          <NavLink to="/employee" className="text-foreground">Employee</NavLink>
-          <NavLink to="/employer" className="text-foreground">Employer</NavLink>
+          <NavLink to="/" end className={navLinkClassName}>Activity</NavLink>
+          <NavLink to="/employee" className={navLinkClassName}>Employee</NavLink>
+          <NavLink to="/employer" className={navLinkClassName}>Employer</NavLink>
         </nav>
         <div className="flex items-center gap-4">
           <PrivateAccessButton />

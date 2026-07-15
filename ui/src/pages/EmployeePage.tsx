@@ -76,7 +76,6 @@ export function EmployeePage() {
   if (!isConnected) {
     return (
       <div>
-        <h1>Employee</h1>
         <p>Connect a wallet to claim your payroll.</p>
       </div>
     )
@@ -84,8 +83,6 @@ export function EmployeePage() {
 
   return (
     <div>
-      <h1>Employee</h1>
-
       {!isUnlocked && (
         <p>
           <button type="button" onClick={unlock}>

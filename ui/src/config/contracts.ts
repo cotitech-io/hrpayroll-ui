@@ -1,6 +1,8 @@
+import { InboxFeeManagerAbi } from "../abis/InboxFeeManager";
 import { PayrollCampaignFacadeAbi } from "../abis/PayrollCampaignFacade";
 import { PayrollVaultAbi } from "../abis/PayrollVault";
 import { PodClaimStoreAbi } from "../abis/PodClaimStore";
+import { PodErc20MintableAbi } from "../abis/PodErc20Mintable";
 import { PrivatePayrollCotiAbi } from "../abis/PrivatePayrollCoti";
 
 // Live testnet deployment (Avalanche Fuji = client chain, COTI testnet = MPC server chain).
@@ -23,10 +25,21 @@ export const avaxContracts = {
     abi: PodClaimStoreAbi,
   },
   pToken: {
+    // Deployed as an EIP-1167 minimal proxy — calls go to this proxy address, but the ABI
+    // is the real implementation's (0xcee95959573618ee8464526c591fe70ae56ab293, verified
+    // 57/57 selector match).
     address: "0x4C8dD09336BB7A219bef9448914a9E4621cE3645",
+    abi: PodErc20MintableAbi,
   },
   comptroller: {
     address: "0x6c08aad1b031e51333010304a85e31a5f8aade7f",
+  },
+  // Same address as cotiTestnetContracts.inbox — PoD inbox contracts deploy deterministically
+  // to identical addresses across chains. Confirmed live: PayrollVault.inbox() on Fuji returns
+  // this exact address. Used to compute wirePayroll's fee params client-side.
+  inbox: {
+    address: "0xAb625bE229F603f6BBF964474AFf6d5487e364De",
+    abi: InboxFeeManagerAbi,
   },
 } as const;
 

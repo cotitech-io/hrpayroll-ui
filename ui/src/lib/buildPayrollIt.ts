@@ -11,6 +11,10 @@ export const CLAIM_TO_SELECTOR = toFunctionSelector('claimTo(uint256,address,((u
 export const BATCH_PROCESS_SELECTOR = toFunctionSelector(
   'batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])',
 ) as Hex
+export const REGISTER_LEAF_SELECTOR = toFunctionSelector(
+  'registerLeaf(uint256,uint256,address,bytes32,((uint256,uint256),bytes))',
+) as Hex
+export const ACK_POOL_CREDIT_SELECTOR = toFunctionSelector('ackPoolCredit(((uint256,uint256),bytes))') as Hex
 
 export type ItUint256Struct = {
   ciphertext: { ciphertextHigh: bigint; ciphertextLow: bigint }
@@ -91,6 +95,63 @@ export function buildClaimIt(params: {
     signerAddress: params.signerAddress,
     contractAddress: params.facadeAddress,
     functionSelector: params.selector,
+    signMessageAsync: params.signMessageAsync,
+  })
+}
+
+// Bound to (COTI PrivatePayrollCoti, registerLeaf) — the employer/admin calls registerLeaf
+// directly on COTI to seed the per-index amount used later by verifyAndCredit; signed by
+// whichever wallet submits that call.
+export function buildRegisterLeafIt(params: {
+  amount: bigint
+  aesKey: string
+  signerAddress: Hex
+  signMessageAsync: SignMessageAsync
+}) {
+  return buildIt({
+    value: params.amount,
+    aesKey: params.aesKey,
+    signerAddress: params.signerAddress,
+    contractAddress: cotiTestnetContracts.privatePayrollCoti.address,
+    functionSelector: REGISTER_LEAF_SELECTOR,
+    signMessageAsync: params.signMessageAsync,
+  })
+}
+
+// Bound to (facade, ackPoolCredit) — the employer acknowledges an encrypted pToken transfer
+// they just made into the facade's pool, so the facade's internal pool ledger reflects it.
+export function buildAckPoolIt(params: {
+  amount: bigint
+  aesKey: string
+  signerAddress: Hex
+  facadeAddress: Hex
+  signMessageAsync: SignMessageAsync
+}) {
+  return buildIt({
+    value: params.amount,
+    aesKey: params.aesKey,
+    signerAddress: params.signerAddress,
+    contractAddress: params.facadeAddress,
+    functionSelector: ACK_POOL_CREDIT_SELECTOR,
+    signMessageAsync: params.signMessageAsync,
+  })
+}
+
+// Bound to (COTI inbox, batchProcessRequests) — same binding as buildVerifyIt/buildPayoutIt;
+// named separately because it plays a different role (the employer's encrypted pToken.transfer
+// amount when funding a campaign, not a claim-side amount).
+export function buildTransferIt(params: {
+  amount: bigint
+  aesKey: string
+  signerAddress: Hex
+  signMessageAsync: SignMessageAsync
+}) {
+  return buildIt({
+    value: params.amount,
+    aesKey: params.aesKey,
+    signerAddress: params.signerAddress,
+    contractAddress: cotiTestnetContracts.inbox.address,
+    functionSelector: BATCH_PROCESS_SELECTOR,
     signMessageAsync: params.signMessageAsync,
   })
 }
