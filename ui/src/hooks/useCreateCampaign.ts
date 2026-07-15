@@ -12,6 +12,8 @@ import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { AVAX_CHAIN_ID, COTI_TESTNET_CHAIN_ID, avaxContracts, cotiTestnetContracts } from '../config/contracts'
 import { PayrollCampaignFacadeBytecode } from '../abis/PayrollCampaignFacadeBytecode'
 import { buildRegisterLeafIt } from '../lib/buildPayrollIt'
+import { saveCampaign } from '../lib/campaignStorage'
+import { toClaimPackage } from '../lib/claimPackage'
 import { buildPayrollMerkleTree, type PayrollMerkleTree, type RosterEntry } from '../lib/merkle'
 import { computePTokenTwoWayFees, computePayrollWireFees } from '../lib/podFees'
 
@@ -175,6 +177,15 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
         })
         await fujiClient.waitForTransactionReceipt({ hash: registerFacadeHash })
       }
+
+      // Persisted locally because nothing on-chain stores the roster/amounts — without this,
+      // claim packages could only ever be exported once, in this same browser session.
+      saveCampaign({
+        facadeAddress,
+        campaignName: params.campaignName,
+        runId: runId.toString(),
+        packages: tree.packages.map(toClaimPackage),
+      })
 
       return { facadeAddress, runId, tree }
     },

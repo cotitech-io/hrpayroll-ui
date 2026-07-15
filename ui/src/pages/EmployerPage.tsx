@@ -6,13 +6,13 @@ import { Button } from '../components/ui/button'
 import { Modal } from '../components/ui/modal'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
-import { useEmployerCampaigns } from '../hooks/useEmployerCampaigns'
+import { useEmployerCampaigns, type EmployerCampaign } from '../hooks/useEmployerCampaigns'
 import { useFundCampaign } from '../hooks/useFundCampaign'
-import { downloadClaimPackage } from '../lib/claimPackage'
+import { downloadClaimPackage, toClaimPackage } from '../lib/claimPackage'
 import type { RosterEntry } from '../lib/merkle'
 
-// pPUSD uses 6 decimals — see EmployeePage's pToken balance comment.
-const PTOKEN_DECIMALS = 6
+// pMTT uses 18 decimals — see EmployeePage's pToken balance comment.
+const PTOKEN_DECIMALS = 18
 const DEFAULT_FACADE_ETH_TOPUP_WEI = 100_000_000_000_000_000n // 0.1 AVAX reserve for the facade's own future inbox fees (ack/clawback round trips).
 
 type RosterRow = { recipient: string; amount: string }
@@ -38,6 +38,11 @@ function toRoster(rows: RosterRow[]): RosterEntry[] {
 
 function PreviousCampaigns() {
   const { data: campaigns, isLoading, error } = useEmployerCampaigns()
+  const [fundingFor, setFundingFor] = useState<EmployerCampaign | null>(null)
+  const [exportingFor, setExportingFor] = useState<EmployerCampaign | null>(null)
+  const [fundAmount, setFundAmount] = useState('')
+  const [fundStage, setFundStage] = useState<string | null>(null)
+  const fundCampaign = useFundCampaign(setFundStage)
 
   if (isLoading) return <p style={{ opacity: 0.7 }}>Loading your previous campaigns…</p>
   if (error) return <p style={{ color: 'crimson' }}>{(error as Error).message}</p>
@@ -53,6 +58,8 @@ function PreviousCampaigns() {
             <th style={{ textAlign: 'left' }}>Name</th>
             <th style={{ textAlign: 'left' }}>Facade</th>
             <th style={{ textAlign: 'left' }}>Status</th>
+            <th style={{ textAlign: 'left' }}>Funded</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -70,10 +77,109 @@ function PreviousCampaigns() {
                 </a>
               </td>
               <td>{c.hasExpired ? 'Expired' : 'Active'}</td>
+              <td>{c.hasReceivedFunds ? 'Funded' : 'Not funded'}</td>
+              <td>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFundAmount('')
+                      setFundingFor(c)
+                    }}
+                  >
+                    Fund
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={c.packages.length === 0}
+                    title={c.packages.length === 0 ? 'Claim packages are only available in the browser that created this campaign.' : undefined}
+                    onClick={() => setExportingFor(c)}
+                  >
+                    Export
+                  </Button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      <Modal
+        open={!!fundingFor}
+        onClose={() => setFundingFor(null)}
+        title={`Fund ${fundingFor?.campaignName ?? ''}`}
+      >
+        <label>
+          Amount (pMTT)
+          <input
+            type="text"
+            style={{ width: '100%' }}
+            value={fundAmount}
+            onChange={(e) => setFundAmount(e.target.value)}
+            placeholder="2500"
+          />
+        </label>
+        <Button
+          type="button"
+          className="mt-2"
+          disabled={!fundAmount.trim() || fundCampaign.isPending}
+          onClick={() => {
+            if (!fundingFor) return
+            fundCampaign.mutate(
+              {
+                facadeAddress: fundingFor.facadeAddress,
+                amount: parseUnits(fundAmount || '0', PTOKEN_DECIMALS),
+                facadeEthTopUpWei: DEFAULT_FACADE_ETH_TOPUP_WEI,
+              },
+              { onSuccess: () => setFundingFor(null) },
+            )
+          }}
+        >
+          {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
+        </Button>
+        {fundCampaign.isPending && fundStage && <p style={{ opacity: 0.7 }}>{fundStage}</p>}
+        {fundCampaign.error && <p style={{ color: 'crimson' }}>{(fundCampaign.error as Error).message}</p>}
+      </Modal>
+
+      <Modal
+        open={!!exportingFor}
+        onClose={() => setExportingFor(null)}
+        title={`Claim packages — ${exportingFor?.campaignName ?? ''}`}
+      >
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Index</th>
+              <th style={{ textAlign: 'left' }}>Recipient</th>
+              <th style={{ textAlign: 'left' }}>Amount</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {exportingFor?.packages.map((pkg) => (
+              <tr key={pkg.index}>
+                <td>{pkg.index}</td>
+                <td>{pkg.recipient}</td>
+                <td>{(Number(pkg.amount) / 10 ** PTOKEN_DECIMALS).toLocaleString()}</td>
+                <td>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadClaimPackage(pkg, exportingFor.campaignName)}
+                  >
+                    Download
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Modal>
     </div>
   )
 }
@@ -166,7 +272,7 @@ export function EmployerPage() {
                   <tr>
                     <th style={{ textAlign: 'left' }}>Index</th>
                     <th style={{ textAlign: 'left' }}>Recipient address</th>
-                    <th style={{ textAlign: 'left' }}>Amount (pPUSD)</th>
+                    <th style={{ textAlign: 'left' }}>Amount (pMTT)</th>
                     <th />
                   </tr>
                 </thead>
@@ -269,7 +375,7 @@ export function EmployerPage() {
 
           <h2>3. Fund campaign</h2>
           <label>
-            Amount (pPUSD)
+            Amount (pMTT)
             <input
               type="text"
               style={{ width: '100%' }}
@@ -316,7 +422,7 @@ export function EmployerPage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => downloadClaimPackage(pkg, campaignName)}
+                      onClick={() => downloadClaimPackage(toClaimPackage(pkg), campaignName)}
                     >
                       Download
                     </Button>

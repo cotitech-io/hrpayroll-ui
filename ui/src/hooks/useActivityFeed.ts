@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { usePublicClient } from 'wagmi'
 import { getAbiItem } from 'viem'
 import { getLogsChunked } from '../lib/getLogsChunked'
-import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
+import { avaxContracts } from '../config/contracts'
 
 export type ActivityEvent =
   | { type: 'RunCreated'; blockNumber: bigint; logIndex: number; runId: bigint; eligibilityRoot: `0x${string}`; payoutToken: `0x${string}` }
@@ -17,22 +16,18 @@ export type ActivityEvent =
 // an async state machine: PayoutRequested fires when the claim tx mines, but the payout only
 // really completes once PayoutCompleted (or PayoutFailed) fires from the COTI verify callback.
 export function useActivityFeed() {
-  const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
-
   return useQuery({
     queryKey: ['activity-feed', avaxContracts.payrollVault.address, avaxContracts.payrollCampaignFacade.address],
-    enabled: !!publicClient,
     queryFn: async (): Promise<ActivityEvent[]> => {
-      if (!publicClient) return []
       const { payrollVault, payrollCampaignFacade } = avaxContracts
 
       const [runCreated, payoutRequested, payoutCompleted, payoutFailed, claimInstant, clawback] = await Promise.all([
-        getLogsChunked(publicClient, { address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'RunCreated' }) }),
-        getLogsChunked(publicClient, { address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutRequested' }) }),
-        getLogsChunked(publicClient, { address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutCompleted' }) }),
-        getLogsChunked(publicClient, { address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutFailed' }) }),
-        getLogsChunked(publicClient, { address: payrollCampaignFacade.address, event: getAbiItem({ abi: payrollCampaignFacade.abi, name: 'ClaimInstant' }) }),
-        getLogsChunked(publicClient, { address: payrollCampaignFacade.address, event: getAbiItem({ abi: payrollCampaignFacade.abi, name: 'Clawback' }) }),
+        getLogsChunked({ address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'RunCreated' }) }),
+        getLogsChunked({ address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutRequested' }) }),
+        getLogsChunked({ address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutCompleted' }) }),
+        getLogsChunked({ address: payrollVault.address, event: getAbiItem({ abi: payrollVault.abi, name: 'PayoutFailed' }) }),
+        getLogsChunked({ address: payrollCampaignFacade.address, event: getAbiItem({ abi: payrollCampaignFacade.abi, name: 'ClaimInstant' }) }),
+        getLogsChunked({ address: payrollCampaignFacade.address, event: getAbiItem({ abi: payrollCampaignFacade.abi, name: 'Clawback' }) }),
       ])
 
       const events: ActivityEvent[] = [

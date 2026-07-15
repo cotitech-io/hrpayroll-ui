@@ -1,4 +1,5 @@
-import type { AbiEvent, Log, PublicClient } from 'viem'
+import { createPublicClient, http, type AbiEvent, type Log } from 'viem'
+import { avalancheFuji } from 'viem/chains'
 
 // Public RPC endpoints commonly cap eth_getLogs at a fixed block range, and the cap varies
 // a lot by chain — confirmed by testing the actual endpoints, not assumed: Sepolia's allows
@@ -9,8 +10,18 @@ const CHUNK_SIZE = 2_000n
 // batches keeps wall-clock time reasonable instead of one request at a time.
 const CONCURRENCY = 10
 
+// A dedicated client on Avalanche's own public Fuji RPC, deliberately not the wagmi client
+// wired up by @coti-io/coti-wallet-plugin — its Fuji transport falls back to
+// avalanche-fuji-c-chain-rpc.publicnode.com when the primary (QuickNode) hiccups, and
+// publicnode's free tier rejects eth_getLogs outright ("archive requests require a personal
+// token"). There's no config option to override the plugin's Fuji RPC, so log scans use this
+// client instead of whatever `usePublicClient` hands back.
+const logsClient = createPublicClient({
+  chain: avalancheFuji,
+  transport: http('https://api.avax-test.network/ext/bc/C/rpc'),
+})
+
 export async function getLogsChunked<TEvent extends AbiEvent>(
-  publicClient: PublicClient,
   params: {
     address: `0x${string}`
     event: TEvent
@@ -18,6 +29,7 @@ export async function getLogsChunked<TEvent extends AbiEvent>(
   },
 ): Promise<Log[]> {
   const { address, event, lookback = 100_000n } = params
+  const publicClient = logsClient
   const latest = await publicClient.getBlockNumber()
   const earliest = latest > lookback ? latest - lookback : 0n
 

@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { useAccount, usePublicClient } from 'wagmi'
-import { zeroAddress, type Hex } from 'viem'
+import { getAbiItem, zeroAddress, type Hex } from 'viem'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
+import { loadCampaign } from '../lib/campaignStorage'
+import { getLogsChunked } from '../lib/getLogsChunked'
+import type { ClaimPackage } from '../lib/claimPackage'
 
 export type EmployerCampaign = {
   runId: bigint
@@ -10,6 +13,13 @@ export type EmployerCampaign = {
   startTime: number
   expiration: number
   hasExpired: boolean
+  // Whether at least one pToken transfer has ever landed on the facade — a real on-chain
+  // signal (Transfer.to), unlike "funded" itself which would require decrypting an encrypted
+  // balance we have no key for.
+  hasReceivedFunds: boolean
+  // Only populated if this campaign was created in this same browser (see campaignStorage.ts)
+  // — nothing on-chain stores the roster, so an older/other-device campaign has none.
+  packages: ClaimPackage[]
 }
 
 // PayrollVault only indexes runs by id (RunCreated doesn't emit the facade address), so we
@@ -60,11 +70,30 @@ export function useEmployerCampaigns() {
         ),
       )
 
+      // One scan for every facade at once — pToken is a single shared contract across all
+      // campaigns, and Transfer.to is indexed, so this is cheap regardless of campaign count.
+      const transferLogs = await getLogsChunked({
+        address: avaxContracts.pToken.address,
+        event: getAbiItem({ abi: avaxContracts.pToken.abi, name: 'Transfer' }),
+      })
+      const fundedFacades = new Set(
+        transferLogs.map((log) => (log as unknown as { args: { to: Hex } }).args.to.toLowerCase()),
+      )
+
       const campaigns: EmployerCampaign[] = []
       runs.forEach(({ runId, facade, startTime, expiration }, i) => {
         const [admin, campaignName, hasExpired] = details[i]
         if (admin.toLowerCase() !== address.toLowerCase()) return
-        campaigns.push({ runId, facadeAddress: facade, campaignName, startTime, expiration, hasExpired })
+        campaigns.push({
+          runId,
+          facadeAddress: facade,
+          campaignName,
+          startTime,
+          expiration,
+          hasExpired,
+          hasReceivedFunds: fundedFacades.has(facade.toLowerCase()),
+          packages: loadCampaign(facade)?.packages ?? [],
+        })
       })
 
       return campaigns.sort((a, b) => (a.runId > b.runId ? -1 : 1))

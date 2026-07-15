@@ -1,5 +1,5 @@
-import { useMutation } from '@tanstack/react-query'
-import type { Hex } from 'viem'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getAbiItem, type Hex } from 'viem'
 import { useAccount, usePublicClient, useSendTransaction, useSignMessage, useWriteContract } from 'wagmi'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
@@ -23,6 +23,7 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
   const { writeContractAsync } = useWriteContract()
   const { sendTransactionAsync } = useSendTransaction()
   const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (params: FundCampaignParams): Promise<void> => {
@@ -34,13 +35,16 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
 
       const { pToken } = avaxContracts
 
-      stage('Checking facade pToken balance is idle…')
+      // The `pending` flag reflects the *sender's* in-flight balance, not the receiver's —
+      // the facade (as a pure receiver here) never actually goes pending itself, so checking
+      // it would always pass immediately. Check our own (sender) balance is idle instead.
+      stage('Checking your pToken balance is idle…')
       const deadline0 = Date.now() + POLL_TIMEOUT_MS
       while (Date.now() < deadline0) {
         const [, pending] = await publicClient.readContract({
           ...pToken,
           functionName: 'balanceOfWithStatus',
-          args: [params.facadeAddress],
+          args: [address],
         })
         if (!pending) break
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
@@ -63,24 +67,40 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         value: pTokenTransferFeeWei,
         chainId: AVAX_CHAIN_ID,
       })
-      await publicClient.waitForTransactionReceipt({ hash: transferHash })
+      const transferReceipt = await publicClient.waitForTransactionReceipt({ hash: transferHash })
 
+      // Wait for the actual async result — a completed `Transfer` (success) or `TransferFailed`
+      // (failure) event — instead of a balance-pending flag, which never reflects the
+      // *receiver's* in-flight state and would let a failed transfer silently fall through to
+      // ackPoolCredit as if it had succeeded.
       stage('Waiting for COTI to credit the facade…')
       const deadline1 = Date.now() + POLL_TIMEOUT_MS
-      let idle = false
+      let settled = false
       while (Date.now() < deadline1) {
-        const [, pending] = await publicClient.readContract({
-          ...pToken,
-          functionName: 'balanceOfWithStatus',
-          args: [params.facadeAddress],
-        })
-        if (!pending) {
-          idle = true
+        const [transferLogs, failedLogs] = await Promise.all([
+          publicClient.getLogs({
+            address: pToken.address,
+            event: getAbiItem({ abi: pToken.abi, name: 'Transfer' }),
+            args: { from: address, to: params.facadeAddress },
+            fromBlock: transferReceipt.blockNumber,
+          }),
+          publicClient.getLogs({
+            address: pToken.address,
+            event: getAbiItem({ abi: pToken.abi, name: 'TransferFailed' }),
+            args: { from: address, to: params.facadeAddress },
+            fromBlock: transferReceipt.blockNumber,
+          }),
+        ])
+        if (failedLogs.length > 0) {
+          throw new Error(`pToken transfer to the facade failed on-chain: ${failedLogs[0].args.errorMsg}`)
+        }
+        if (transferLogs.length > 0) {
+          settled = true
           break
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
       }
-      if (!idle) throw new Error('Timed out waiting for the pToken transfer to settle.')
+      if (!settled) throw new Error('Timed out waiting for the pToken transfer to settle.')
 
       stage('Acknowledging pool credit…')
       const ackIt = await buildAckPoolIt({
@@ -108,6 +128,11 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         })
         await publicClient.waitForTransactionReceipt({ hash: topUpHash })
       }
+    },
+    // The "Funded" column in List Payroll reads this same query — without invalidating it,
+    // a successful fund only updates the on-chain state, not the already-fetched UI list.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employer-campaigns'] })
     },
   })
 }

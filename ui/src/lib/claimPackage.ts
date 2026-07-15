@@ -36,9 +36,8 @@ export function toClaimPackage(pkg: MerklePackage): ClaimPackage {
   }
 }
 
-export function downloadClaimPackage(pkg: MerklePackage, campaignName: string): void {
-  const claimPackage = toClaimPackage(pkg)
-  const blob = new Blob([JSON.stringify(claimPackage, null, 2)], { type: 'application/json' })
+export function downloadClaimPackage(pkg: ClaimPackage, campaignName: string): void {
+  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   const safeName = campaignName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()

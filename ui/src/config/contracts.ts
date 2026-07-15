@@ -17,7 +17,10 @@ export const avaxContracts = {
     abi: PayrollVaultAbi,
   },
   payrollCampaignFacade: {
-    address: "0xc7a1a9cd3d6d9571254b7f4c3eee33bb26ab8e2f",
+    // A facade's TOKEN is immutable once deployed, so switching the payout token to pMTT
+    // required a new facade (runId 4) rather than repointing the old one (runId 1, pUSDC —
+    // still readable on-chain via List Payroll, but superseded).
+    address: "0xec10d46c4757368767da54ca83e25b22e9270c7a",
     abi: PayrollCampaignFacadeAbi,
   },
   payrollClaimStore: {
@@ -25,10 +28,11 @@ export const avaxContracts = {
     abi: PodClaimStoreAbi,
   },
   pToken: {
-    // Deployed as an EIP-1167 minimal proxy — calls go to this proxy address, but the ABI
-    // is the real implementation's (0xcee95959573618ee8464526c591fe70ae56ab293, verified
-    // 57/57 selector match).
-    address: "0x4C8dD09336BB7A219bef9448914a9E4621cE3645",
+    // pMTT ("Private MyTestToken") — deployed as an EIP-1167 minimal proxy to the same
+    // PodErc20MintableInitializable implementation as the previous pUSDC deployment
+    // (0xcee95959573618ee8464526c591fe70ae56ab293), so the existing ABI still applies.
+    // Unlike pUSDC (6 decimals), pMTT uses 18 — see PTOKEN_DECIMALS in the pages that display it.
+    address: "0x8F34570CEAD49273D5DA8A0E25e728eCC28af267",
     abi: PodErc20MintableAbi,
   },
   comptroller: {
@@ -57,7 +61,3 @@ export const cotiTestnetContracts = {
     address: "0xAb625bE229F603f6BBF964474AFf6d5487e364De",
   },
 } as const;
-
-// The vault run this UI operates against. A future "create campaign" flow (Phase 3)
-// will register additional runs; this is the one already live on-chain today.
-export const DEFAULT_RUN_ID = 1;

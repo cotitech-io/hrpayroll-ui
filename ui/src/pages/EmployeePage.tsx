@@ -18,9 +18,12 @@ function PTokenBalance() {
     setIsFetching(true)
     setError(null)
     try {
-      // pPUSD uses 6 decimals per the payroll port's own docs; 256-bit ciphertext storage
-      // matches the ctUint256 balance type used throughout the payroll/pToken contracts.
-      const result = await fetchPrivateBalance(address, sessionAesKey, avaxContracts.pToken.address, 256, 6)
+      // pMTT uses 18 decimals; 256-bit ciphertext storage matches the ctUint256 balance type
+      // used throughout the payroll/pToken contracts. Passing AVAX_CHAIN_ID forces a plain RPC
+      // read instead of routing through window.ethereum directly — without it, this call
+      // silently depends on whatever network the wallet extension currently has *selected*
+      // and returns "0.00" with no error if that's not Fuji.
+      const result = await fetchPrivateBalance(address, sessionAesKey, avaxContracts.pToken.address, 256, 18, AVAX_CHAIN_ID)
       setBalance(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -36,7 +39,7 @@ function PTokenBalance() {
         target="_blank"
         rel="noopener noreferrer"
       >
-        pPUSD
+        pMTT
       </a>{' '}
       balance: <strong>{balance ?? '—'}</strong>{' '}
       <button type="button" onClick={refresh} disabled={!sessionAesKey || isFetching}>
