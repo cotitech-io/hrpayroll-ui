@@ -1,5 +1,5 @@
 import { useReadContracts } from 'wagmi'
-import { sepoliaContracts, SEPOLIA_CHAIN_ID } from '../config/contracts'
+import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { useActivityFeed, type ActivityEvent } from '../hooks/useActivityFeed'
 
 function describeEvent(e: ActivityEvent): string {
@@ -21,14 +21,14 @@ function describeEvent(e: ActivityEvent): string {
 }
 
 export function ActivityPage() {
-  const { payrollCampaignFacade } = sepoliaContracts
+  const { payrollCampaignFacade } = avaxContracts
   const { data, isLoading, error } = useReadContracts({
     contracts: [
-      { ...payrollCampaignFacade, functionName: 'campaignName', chainId: SEPOLIA_CHAIN_ID },
-      { ...payrollCampaignFacade, functionName: 'hasExpired', chainId: SEPOLIA_CHAIN_ID },
-      { ...payrollCampaignFacade, functionName: 'CAMPAIGN_START_TIME', chainId: SEPOLIA_CHAIN_ID },
-      { ...payrollCampaignFacade, functionName: 'EXPIRATION', chainId: SEPOLIA_CHAIN_ID },
-      { ...payrollCampaignFacade, functionName: 'runId', chainId: SEPOLIA_CHAIN_ID },
+      { ...payrollCampaignFacade, functionName: 'campaignName', chainId: AVAX_CHAIN_ID },
+      { ...payrollCampaignFacade, functionName: 'hasExpired', chainId: AVAX_CHAIN_ID },
+      { ...payrollCampaignFacade, functionName: 'CAMPAIGN_START_TIME', chainId: AVAX_CHAIN_ID },
+      { ...payrollCampaignFacade, functionName: 'EXPIRATION', chainId: AVAX_CHAIN_ID },
+      { ...payrollCampaignFacade, functionName: 'runId', chainId: AVAX_CHAIN_ID },
     ],
   })
   const feed = useActivityFeed()
@@ -56,7 +56,7 @@ export function ActivityPage() {
       <h2>Recent activity</h2>
       {feed.isLoading && <p>Scanning recent blocks for events…</p>}
       {feed.error && <p style={{ color: 'crimson' }}>Error: {(feed.error as Error).message}</p>}
-      {feed.data && feed.data.length === 0 && <p style={{ opacity: 0.7 }}>No events in the last ~300k blocks.</p>}
+      {feed.data && feed.data.length === 0 && <p style={{ opacity: 0.7 }}>No events in the last ~100k blocks.</p>}
       {feed.data && feed.data.length > 0 && (
         <ul>
           {feed.data.map((e) => (
@@ -67,8 +67,9 @@ export function ActivityPage() {
         </ul>
       )}
       <p style={{ opacity: 0.6, fontSize: '0.85rem' }}>
-        Only scans the most recent ~300k blocks (public RPC caps a single eth_getLogs range at 50k;
-        this fetches in chunks). Fine for a brand-new campaign, not a general-purpose full history view.
+        Only scans the most recent ~100k blocks (public RPCs cap a single eth_getLogs range —
+        Fuji's public endpoint allows only 2,048 at a time; this fetches in parallel chunks).
+        Fine for a brand-new campaign, not a general-purpose full history view.
       </p>
     </div>
   )

@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useAccount, usePublicClient, useSignMessage, useWriteContract } from 'wagmi'
 import { encodeAbiParameters, type Hex } from 'viem'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
-import { sepoliaContracts, SEPOLIA_CHAIN_ID } from '../config/contracts'
+import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { buildClaimIt, buildPayoutIt, buildVerifyIt, CLAIM_SELECTOR, CLAIM_TO_SELECTOR } from '../lib/buildPayrollIt'
 import type { ClaimPackage } from '../lib/claimPackage'
 
@@ -18,16 +18,16 @@ export function useClaimFlow() {
   const { sessionAesKey } = usePrivacyBridgeUnlock()
   const { signMessageAsync } = useSignMessage()
   const { writeContractAsync } = useWriteContract()
-  const publicClient = usePublicClient({ chainId: SEPOLIA_CHAIN_ID })
+  const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
 
   return useMutation({
     mutationFn: async (params: { pkg: ClaimPackage; payoutTo?: Hex }): Promise<ClaimResult> => {
       const { pkg, payoutTo } = params
       if (!address) throw new Error('Connect a wallet first.')
       if (!sessionAesKey) throw new Error('Unlock private access first.')
-      if (!publicClient) throw new Error('No Sepolia client available.')
+      if (!publicClient) throw new Error('No Avalanche Fuji client available.')
 
-      const { payrollCampaignFacade, payrollClaimStore } = sepoliaContracts
+      const { payrollCampaignFacade, payrollClaimStore } = avaxContracts
       const amount = BigInt(pkg.amount)
       const to = payoutTo && payoutTo.toLowerCase() !== pkg.recipient.toLowerCase() ? payoutTo : undefined
 
@@ -53,7 +53,7 @@ export function useClaimFlow() {
         ...payrollClaimStore,
         functionName: 'submitPayload',
         args: [payrollCampaignFacade.address, BigInt(pkg.index), verifyIt, proofHandle, payoutIt],
-        chainId: SEPOLIA_CHAIN_ID,
+        chainId: AVAX_CHAIN_ID,
       })
       await publicClient.waitForTransactionReceipt({ hash: submitHash })
 
@@ -68,21 +68,21 @@ export function useClaimFlow() {
             functionName: 'claimTo',
             args: [BigInt(pkg.index), to, claimIt, pkg.proof],
             value: minFeeWei,
-            chainId: SEPOLIA_CHAIN_ID,
+            chainId: AVAX_CHAIN_ID,
           })
         : await writeContractAsync({
             ...payrollCampaignFacade,
             functionName: 'claim',
             args: [BigInt(pkg.index), pkg.recipient, claimIt, pkg.proof],
             value: minFeeWei,
-            chainId: SEPOLIA_CHAIN_ID,
+            chainId: AVAX_CHAIN_ID,
           })
       const claimReceipt = await publicClient.waitForTransactionReceipt({ hash: claimHash })
       if (claimReceipt.status !== 'success') throw new Error('Claim transaction reverted.')
 
       // The claim tx mining is not the same as the claim completing — verifyAndCredit runs
       // on COTI asynchronously (via the PoD inbox), and hasClaimed only flips once that
-      // round-trip lands back on Sepolia. Poll for it rather than treating the mined tx as done.
+      // round-trip lands back on Avalanche Fuji. Poll for it rather than treating the mined tx as done.
       const deadline = Date.now() + POLL_TIMEOUT_MS
       while (Date.now() < deadline) {
         const claimed = await publicClient.readContract({

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { WagmiRainbowKitProvider, PrivacyBridgeProvider, NetworkGuard, sepolia } from '@coti-io/coti-wallet-plugin'
+import { avalancheFuji } from 'viem/chains'
+import { WagmiRainbowKitProvider, PrivacyBridgeProvider, NetworkGuard } from '@coti-io/coti-wallet-plugin'
 import { ThemeProvider } from './providers/ThemeProvider'
 import { Layout } from './components/Layout'
 import { ActivityPage } from './pages/ActivityPage'
@@ -9,7 +10,10 @@ import { EmployerPage } from './pages/EmployerPage'
 function App() {
   return (
     <ThemeProvider>
-      <WagmiRainbowKitProvider appName="COTI Payroll" initialChain={sepolia} useEip6963MetaMask>
+      {/* coti-wallet-plugin's own chain configs include Fuji (CHAIN_CONFIGS), but it
+          doesn't export a top-level `avalancheFuji` Chain object like it does for
+          `sepolia` — using viem's own definition for the initialChain prop instead. */}
+      <WagmiRainbowKitProvider appName="COTI Payroll" initialChain={avalancheFuji} useEip6963MetaMask>
         <PrivacyBridgeProvider>
           {/* Only blocks when a wallet is connected AND on the wrong chain — read-only
               browsing while disconnected (or before switching) is unaffected. */}

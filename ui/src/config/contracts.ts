@@ -3,32 +3,35 @@ import { PayrollVaultAbi } from "../abis/PayrollVault";
 import { PodClaimStoreAbi } from "../abis/PodClaimStore";
 import { PrivatePayrollCotiAbi } from "../abis/PrivatePayrollCoti";
 
-// Live testnet deployment (Sepolia = client chain, COTI testnet = MPC server chain).
-// Verified against deployed bytecode — see git history for the selector-matching check.
-export const SEPOLIA_CHAIN_ID = 11155111;
+// Live testnet deployment (Avalanche Fuji = client chain, COTI testnet = MPC server chain).
+// Redeployed 2026-07-15 targeting Fuji instead of Sepolia. Verified against deployed
+// bytecode — see git history for the selector-matching check.
+export const AVAX_CHAIN_ID = 43113; // Avalanche Fuji
 export const COTI_TESTNET_CHAIN_ID = 7082400;
 
-export const sepoliaContracts = {
+export const avaxContracts = {
   payrollVault: {
-    address: "0xfcc5b82baef5bf829ccd1950a614e02f6c805d10",
+    address: "0xa8583516419d9ad1491b85e1b884bcd12241a78d",
     abi: PayrollVaultAbi,
   },
   payrollCampaignFacade: {
-    address: "0xb0cb44730c6c8b3920f276c4a7bd302bb722bcba",
+    address: "0xc7a1a9cd3d6d9571254b7f4c3eee33bb26ab8e2f",
     abi: PayrollCampaignFacadeAbi,
   },
   payrollClaimStore: {
-    address: "0x7d40ccfeac1bb6ead7a48487f0e67a76ff4fde13",
+    address: "0xfd5c63d966121650ca68becb3f06cdf15822d875",
     abi: PodClaimStoreAbi,
   },
   pToken: {
-    address: "0xc727D2Ab43bF0d4cab75FD5C046BA38899ca988a",
+    address: "0x4C8dD09336BB7A219bef9448914a9E4621cE3645",
   },
   comptroller: {
-    address: "0xe21e1b33057efaafa7320b010759ed0a9c8c9b60",
+    address: "0x6c08aad1b031e51333010304a85e31a5f8aade7f",
   },
 } as const;
 
+// Unchanged from the Sepolia-targeting deployment — the COTI-side contracts didn't move,
+// only the source/client chain did.
 export const cotiTestnetContracts = {
   privatePayrollCoti: {
     address: "0xcdf4d94b3f2ff46e5468fde76d0282be718122dc",

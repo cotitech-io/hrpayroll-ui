@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAccount, useReadContract } from 'wagmi'
 import { usePrivateUnlock, usePrivacyBridgeUnlock, usePrivateTokenBalance } from '@coti-io/coti-wallet-plugin'
-import { sepoliaContracts, SEPOLIA_CHAIN_ID } from '../config/contracts'
+import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { parseClaimPackage, type ClaimPackage } from '../lib/claimPackage'
 import { useClaimFlow } from '../hooks/useClaimFlow'
 
@@ -20,7 +20,7 @@ function PTokenBalance() {
     try {
       // pPUSD uses 6 decimals per the payroll port's own docs; 256-bit ciphertext storage
       // matches the ctUint256 balance type used throughout the payroll/pToken contracts.
-      const result = await fetchPrivateBalance(address, sessionAesKey, sepoliaContracts.pToken.address, 256, 6)
+      const result = await fetchPrivateBalance(address, sessionAesKey, avaxContracts.pToken.address, 256, 6)
       setBalance(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -50,10 +50,10 @@ export function EmployeePage() {
   const claim = useClaimFlow()
 
   const { data: alreadyClaimed } = useReadContract({
-    ...sepoliaContracts.payrollCampaignFacade,
+    ...avaxContracts.payrollCampaignFacade,
     functionName: 'hasClaimed',
     args: pkg ? [BigInt(pkg.index)] : undefined,
-    chainId: SEPOLIA_CHAIN_ID,
+    chainId: AVAX_CHAIN_ID,
     query: { enabled: !!pkg },
   })
 
