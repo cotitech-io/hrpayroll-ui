@@ -1,0 +1,8 @@
+# This repo only tracks the ui/ app. Everything else at this level is either a
+# separate sibling git repo (pod-dapp-ports, coti-contracts, pod-mpc-lib, etc. —
+# used for local devnet tooling, each with its own remote/history) or local
+# state that should never be committed (.env holds private key material).
+/*
+!/.gitignore
+!/README.md
+!/ui
