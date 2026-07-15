@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { PrivateAccessButton } from './PrivateAccessButton'
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -19,7 +20,10 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/employee">Employee</NavLink>
           <NavLink to="/employer">Employer</NavLink>
         </nav>
-        <ConnectButton />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <PrivateAccessButton />
+          <ConnectButton />
+        </div>
       </header>
       <main style={{ flex: 1, padding: '1.5rem' }}>{children}</main>
     </div>
