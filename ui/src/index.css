@@ -1,111 +1,602 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Ported verbatim from portal-bridge's src/index.css for an exact visual match
+   (same color tokens, gradients, glows, utility classes). */
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+    color-scheme: light;
+
+    /* Light theme */
+    --background: 240 33% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 234 91% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 320 100% 60%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 234 91% 54%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 234 91% 54%;
+
+    --radius: 1rem;
+
+    /* Custom portal colors */
+    --portal-cyan: 190 100% 42%;
+    --portal-cyan-glow: 190 100% 50%;
+    --portal-purple: 270 80% 55%;
+    --portal-pink: 320 100% 55%;
+    --void: 240 33% 97%;
+
+    /* Gradients */
+    --gradient-portal: linear-gradient(135deg, hsla(234, 91%, 54%, 0.25), hsla(190, 100%, 50%, 0.2));
+    --gradient-card: linear-gradient(180deg, hsla(0, 0%, 100%, 0.95), hsla(220, 30%, 97%, 0.98));
+    --gradient-glow: radial-gradient(ellipse at center, hsla(234, 91%, 54%, 0.12), transparent 70%);
+
+    --body-bg-image: linear-gradient(
+      155deg,
+      #F4F4FE 0%,
+      #F0F2FD 40%,
+      #F7FBFA 100%
+    );
+
+    /* Overlays */
+    --overlay: rgba(4, 19, 61, 0.45);
+    --overlay-blur: rgba(4, 19, 61, 0.35);
+    --overlay-subtle: rgba(4, 19, 61, 0.12);
+
+    /* Glass & panels */
+    --glass-bg: linear-gradient(145deg, hsla(0, 0%, 100%, 0.88), hsla(220, 30%, 96%, 0.92));
+    --glass-border: hsla(222, 47%, 11%, 0.12);
+    --glass-purple-bg: linear-gradient(145deg, hsla(270, 40%, 98%, 0.88), hsla(270, 28%, 94%, 0.92));
+    --glass-purple-border: hsla(270, 50%, 40%, 0.15);
+    --glass-panel-bg: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(225 45% 97%) 100%);
+    --glass-panel-border: hsla(222, 47%, 11%, 0.1);
+    --glass-blur: 20px;
+
+    /* Portal border */
+    --portal-border-fill: hsl(0, 0%, 100%);
+    --portal-border-gradient: linear-gradient(135deg, hsla(234, 91%, 54%, 0.45), hsla(270, 80%, 55%, 0.3));
+
+    /* Glow effects */
+    --text-glow-shadow: 0 0 20px hsla(234, 91%, 54%, 0.2), 0 0 40px hsla(234, 91%, 54%, 0.12);
+    --text-glow-purple-shadow: 0 0 20px hsla(270, 80%, 55%, 0.2), 0 0 40px hsla(270, 80%, 55%, 0.12);
+    --box-glow-shadow: 0 0 24px hsla(234, 91%, 54%, 0.1), 0 0 48px hsla(234, 91%, 54%, 0.05), inset 0 1px 0 hsla(0, 0%, 100%, 0.9);
+    --box-glow-purple-shadow: 0 0 24px hsla(270, 80%, 55%, 0.1), 0 0 48px hsla(270, 80%, 55%, 0.05), inset 0 1px 0 hsla(270, 40%, 98%, 0.9);
+
+    /* Scrollbar */
+    --scrollbar-thumb: hsl(234, 91%, 54%);
+    --scrollbar-thumb-hover: hsl(215, 16%, 47%);
+
+    /* Third-party overrides */
+    --rk-connect-title-color: hsl(222, 47%, 11%);
+
+    --modal-compact-bg: hsl(0 0% 100%);
+    --dropdown-bg: hsl(0 0% 100%);
+    --panel-outline: hsl(var(--foreground) / 0.22);
+    --surface-token-card-bg: linear-gradient(0deg, rgba(4, 19, 61, 0.06) 0%, rgba(4, 19, 61, 0.06) 100%), linear-gradient(0deg, rgba(30, 41, 246, 0.1) 0%, rgba(30, 41, 246, 0.1) 100%);
+    --surface-balance-bar-bg: linear-gradient(0deg, rgba(4, 19, 61, 0.08) 0%, rgba(4, 19, 61, 0.08) 100%), linear-gradient(0deg, rgba(30, 41, 246, 0.12) 0%, rgba(30, 41, 246, 0.12) 100%);
+    --portal-orb-ring-fill: hsl(220 30% 96%);
+    --chip-bg: hsl(var(--foreground) / 0.08);
+    --modal-inset-bg: hsl(220 30% 96%);
+    --modal-dropdown-bg: hsl(0 0% 100%);
+    --modal-cta-bg: hsl(234 55% 93%);
+    --step-line: hsl(var(--foreground) / 0.15);
+
+    --chart-deposit: hsl(234, 91%, 54%);
+    --chart-withdrawal: hsl(25, 95%, 53%);
+    --color-success: hsl(142, 71%, 45%);
+    --color-success-muted: hsl(142, 71%, 45%, 0.2);
+    --welcome-chain-bg: rgba(255, 255, 255, 0.78);
+    --icon-public-bg: #D745FF;
+    --icon-private-bg: rgb(125, 179, 246);
+    --portal-orb-ring: conic-gradient(rgb(51, 235, 255), rgb(128, 51, 204), rgb(235, 71, 180), rgb(51, 235, 255));
+    --portal-orb-core: radial-gradient(circle, rgb(102, 240, 255) 0%, rgb(128, 51, 204) 100%);
+    --portal-orb-glow: 0 0 12px rgba(51, 235, 255, 0.35), 0 0 24px rgba(128, 51, 204, 0.15);
+    --portal-action-active-shadow: 0 0 20px rgba(128, 51, 204, 0.12);
+    --portal-viz-outer-glow: radial-gradient(circle, transparent 30%, rgba(51, 235, 255, 0.08) 50%, transparent 70%);
+    --portal-viz-inner-glow: radial-gradient(circle, rgba(51, 235, 255, 0.15) 0%, rgba(128, 51, 204, 0.08) 50%, transparent 70%);
+    --portal-viz-core-shadow: rgba(51, 235, 255, 0.35) 0px 0px 40px, rgba(128, 51, 204, 0.2) 0px 0px 80px;
+
+    --COTI-v2-brand-primary-blue: rgba(30, 41, 246, 1);
+    --COTI-v2-brand-secondary-green: rgba(8, 210, 153, 1);
+    --COTI-v2-brand-secondary-light-green: rgba(201, 255, 131, 1);
+    --COTI-v2-brand-secondary-light-purple: rgba(215, 69, 255, 1);
+    --COTI-v2-brand-secondary-navy: rgba(4, 19, 61, 1);
+    --COTI-v2-brand-secondary-navy-60: rgba(4, 19, 61, 0.6);
+    --COTI-v2-supporting-primary-blue-200: rgba(133, 225, 255, 1);
+    --COTI-v2-supporting-white: rgba(255, 255, 255, 1);
+    --h5-font-family: "Dazzed", Helvetica;
+    --h5-font-size: 24px;
+    --h5-font-style: normal;
+    --h5-font-weight: 600;
+    --h5-letter-spacing: 0px;
+    --h5-line-height: 129.99999523162842%;
+    --p3-bold-font-family: "Dazzed", Helvetica;
+    --p3-bold-font-size: 14px;
+    --p3-bold-font-style: normal;
+    --p3-bold-font-weight: 600;
+    --p3-bold-letter-spacing: 0px;
+    --p3-bold-line-height: 150%;
+    --p3-font-family: "Dazzed", Helvetica;
+    --p3-font-size: 14px;
+    --p3-font-style: normal;
+    --p3-font-weight: 500;
+    --p3-letter-spacing: 0px;
+    --p3-line-height: 150%;
+    --primitives-units-unit: 4px;
+    --primitives-units-unit-2: 8px;
+    --swap-hover: 0px 0px 8px 0px rgba(3, 215, 255, 1);
+    --tokens-sizes-sizes-unit-2-8: var(--primitives-units-unit-2);
+    --tokens-sizes-sizes-unit-4: var(--primitives-units-unit);
   }
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+  .dark {
+    color-scheme: dark;
+
+    /* Deep Electric Blue Theme */
+    --background: 232 99% 57%;
+    --foreground: 210 40% 98%;
+
+    --card: 230 40% 14%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 230 40% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 190 100% 50%;
+    --primary-foreground: 230 40% 10%;
+
+    --secondary: 320 100% 60%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 230 30% 20%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 190 100% 40%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 230 30% 20%;
+    --input: 230 30% 20%;
+    --ring: 190 100% 50%;
+
+    --portal-cyan: 190 100% 50%;
+    --portal-cyan-glow: 190 100% 60%;
+    --portal-purple: 270 80% 60%;
+    --portal-pink: 320 100% 60%;
+    --void: 230 40% 5%;
+
+    --gradient-portal: linear-gradient(135deg, hsla(190, 100%, 50%, 0.8), hsla(270, 80%, 60%, 0.6));
+    --gradient-card: linear-gradient(180deg, hsla(230, 40%, 16%, 0.9), hsla(230, 40%, 12%, 0.95));
+    --gradient-glow: radial-gradient(ellipse at center, hsla(190, 100%, 40%, 0.3), transparent 70%);
+
+    --body-bg-image: url("/bg-img.jpg");
+
+    /* Overlays */
+    --overlay: rgba(0, 0, 0, 0.8);
+    --overlay-blur: rgba(0, 0, 0, 0.6);
+    --overlay-subtle: rgba(0, 0, 0, 0.2);
+
+    /* Glass & panels */
+    --glass-bg: linear-gradient(145deg, hsla(230, 40%, 16%, 0.8), hsla(230, 40%, 12%, 0.9));
+    --glass-border: hsla(230, 40%, 30%, 0.3);
+    --glass-purple-bg: linear-gradient(145deg, hsla(260, 40%, 16%, 0.8), hsla(260, 40%, 12%, 0.9));
+    --glass-purple-border: hsla(260, 40%, 30%, 0.3);
+    --glass-panel-bg: linear-gradient(180deg, #1E29F6 0%, #04133D 100%);
+    --glass-panel-border: rgba(255, 255, 255, 0.1);
+    --glass-blur: 20px;
+
+    /* Portal border */
+    --portal-border-fill: hsl(220, 25%, 10%);
+    --portal-border-gradient: linear-gradient(135deg, hsla(180, 100%, 50%, 0.5), hsla(270, 80%, 60%, 0.3));
+
+    /* Glow effects */
+    --text-glow-shadow: 0 0 30px hsla(190, 100%, 50%, 0.6), 0 0 60px hsla(190, 100%, 50%, 0.4);
+    --text-glow-purple-shadow: 0 0 30px hsla(270, 80%, 60%, 0.6), 0 0 60px hsla(270, 80%, 60%, 0.4);
+    --box-glow-shadow: 0 0 25px hsla(190, 100%, 50%, 0.15), 0 0 50px hsla(190, 100%, 50%, 0.05), inset 0 1px 0 hsla(190, 100%, 80%, 0.1);
+    --box-glow-purple-shadow: 0 0 25px hsla(270, 80%, 60%, 0.15), 0 0 50px hsla(270, 80%, 60%, 0.05), inset 0 1px 0 hsla(270, 80%, 80%, 0.1);
+
+    /* Scrollbar */
+    --scrollbar-thumb: hsla(190, 100%, 50%, 1);
+    --scrollbar-thumb-hover: hsla(215, 20%, 65%, 0.5);
+
+    /* Third-party overrides */
+    --rk-connect-title-color: hsl(210, 40%, 98%);
+
+    --modal-compact-bg: #0a1030;
+    --dropdown-bg: #0A1656;
+    --panel-outline: hsl(var(--border));
+    --surface-token-card-bg: linear-gradient(0deg, rgba(4, 19, 61, 0.5) 0%, rgba(4, 19, 61, 0.5) 100%), linear-gradient(0deg, rgba(30, 41, 246, 0.6) 0%, rgba(30, 41, 246, 0.6) 100%);
+    --surface-balance-bar-bg: linear-gradient(0deg, rgba(4, 19, 61, 0.6) 0%, rgba(4, 19, 61, 0.6) 100%), linear-gradient(0deg, rgba(30, 41, 246, 0.4) 0%, rgba(30, 41, 246, 0.4) 100%);
+    --portal-orb-ring-fill: #0a1656;
+    --chip-bg: rgba(0, 0, 0, 0.8);
+    --modal-inset-bg: #071848;
+    --modal-dropdown-bg: #0a1656;
+    --modal-cta-bg: rgba(26, 42, 108, 0.8);
+    --step-line: rgba(255, 255, 255, 0.15);
+
+    --chart-deposit: hsl(190, 100%, 50%);
+    --chart-withdrawal: hsl(25, 95%, 53%);
+    --color-success: hsl(142, 76%, 46%);
+    --color-success-muted: hsl(142, 76%, 46%, 0.2);
+    --welcome-chain-bg: rgba(15, 23, 42, 0.45);
+    --icon-public-bg: #D745FF;
+    --icon-private-bg: rgb(125, 179, 246);
+    --portal-orb-ring: conic-gradient(rgb(51, 235, 255), rgb(128, 51, 204), rgb(235, 71, 180), rgb(51, 235, 255));
+    --portal-orb-core: radial-gradient(circle, rgb(102, 240, 255) 0%, rgb(128, 51, 204) 100%);
+    --portal-orb-glow: 0 0 12px rgba(51, 235, 255, 0.6), 0 0 24px rgba(128, 51, 204, 0.3);
+    --portal-action-active-shadow: 0 0 20px rgba(128, 51, 204, 0.15);
+    --portal-viz-outer-glow: radial-gradient(circle, transparent 30%, rgba(51, 235, 255, 0.1) 50%, transparent 70%);
+    --portal-viz-inner-glow: radial-gradient(circle, rgba(51, 235, 255, 0.2) 0%, rgba(128, 51, 204, 0.1) 50%, transparent 70%);
+    --portal-viz-core-shadow: rgba(51, 235, 255, 0.6) 0px 0px 40px, rgba(128, 51, 204, 0.4) 0px 0px 80px;
   }
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-body {
-  margin: 0;
-}
+  html,
+  body {
+    @apply overflow-x-hidden;
+  }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    background-image: var(--body-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    /* scroll avoids iOS Safari jank with fixed backgrounds */
+    background-attachment: scroll;
+  }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+  @media (min-width: 768px) {
+    body {
+      background-attachment: fixed;
+    }
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .font-display {
+    font-family: 'Inter', sans-serif;
+  }
+
+  .modal-overlay {
+    background-color: var(--overlay);
+  }
+
+  .modal-overlay-blur {
+    background-color: var(--overlay-blur);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-overlay-subtle {
+    background-color: var(--overlay-subtle);
+  }
+
+  .text-glow {
+    text-shadow: var(--text-glow-shadow);
+  }
+
+  .text-glow-purple {
+    text-shadow: var(--text-glow-purple-shadow);
+  }
+
+  .box-glow {
+    box-shadow: var(--box-glow-shadow);
+  }
+
+  .box-glow-purple {
+    box-shadow: var(--box-glow-purple-shadow);
+  }
+
+  .glass,
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-purple {
+    background: var(--glass-purple-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-purple-border);
+  }
+
+  .portal-border {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--portal-border-fill), var(--portal-border-fill)) padding-box,
+      var(--portal-border-gradient) border-box;
+  }
+
+  .glass-panel {
+    background: var(--glass-panel-bg);
+    border: 1px solid var(--glass-panel-border);
+  }
+
+  .welcome-bg {
+    background:
+      radial-gradient(ellipse at top center, rgba(176,150,255,.18) 0%, rgba(176,150,255,.10) 18%, rgba(255,255,255,0) 45%),
+      radial-gradient(ellipse at bottom left, rgba(108,170,255,.05) 0%, transparent 55%),
+      radial-gradient(ellipse at bottom right, rgba(176,150,255,.05) 0%, transparent 55%),
+      #FBFBFE;
+  }
+
+  .dark .welcome-bg {
+    background: transparent;
+  }
+
+  .welcome-card {
+    background: #ffffff;
+    border: 1px solid rgba(220, 215, 255, 0.6);
+    box-shadow: 0 20px 50px rgba(200, 200, 255, 0.35), 0 4px 16px rgba(180, 170, 255, 0.15);
+  }
+
+  .dark .welcome-card {
+    background: #070e2a;
+    border: 2px solid rgba(124, 58, 237, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(124, 58, 237, 0.15),
+      0 0 30px rgba(124, 58, 237, 0.2),
+      0 20px 60px rgba(10, 5, 40, 0.6),
+      0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+
+  .dark .dark-feature-icon .icon-path {
+    stroke: url(#darkGrad_shield);
+    filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.55));
+  }
+
+  .dark .dark-feature-icon svg {
+    filter: drop-shadow(0 0 7px rgba(124, 58, 237, 0.55));
+  }
+
+  .modal-shell {
+    border-radius: 24px;
+    background: var(--glass-panel-bg);
+    border: 1px solid var(--glass-panel-border);
+    color: hsl(var(--foreground));
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  }
+
+  .modal-compact {
+    background: var(--modal-compact-bg);
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground));
+  }
+
+  .dropdown-panel {
+    background: var(--dropdown-bg);
+    border: 1px solid var(--panel-outline);
+    color: hsl(var(--foreground));
+  }
+
+  .panel-outline {
+    border: 1px solid var(--panel-outline);
+  }
+
+  .surface-token-card {
+    background: var(--surface-token-card-bg);
+    border: 1px solid var(--panel-outline);
+  }
+
+  .surface-balance-bar {
+    background: var(--surface-balance-bar-bg);
+    border: 1px solid var(--panel-outline);
+  }
+
+  .chip-bg {
+    background: var(--chip-bg);
+  }
+
+  .btn-gradient-connect {
+    background: linear-gradient(90deg, #1E29F6 0%, #00E5FF 100%);
+    color: white;
+  }
+
+  .btn-gradient-connect:hover {
+    opacity: 0.9;
+  }
+
+  .btn-gradient-wallet {
+    background: linear-gradient(90deg, #8A50F5 0%, #F048A4 100%);
+    color: white;
+  }
+
+  .btn-gradient-wallet:hover {
+    opacity: 0.9;
+  }
+
+  .modal-inset {
+    background: var(--modal-inset-bg);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .modal-dropdown {
+    background: var(--modal-dropdown-bg);
+  }
+
+  .modal-cta {
+    background: var(--modal-cta-bg);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .step-line {
+    background: var(--step-line);
+  }
+
+  .welcome-chain-card {
+    background: var(--welcome-chain-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .portal-orb-ring {
+    background: var(--portal-orb-ring);
+  }
+
+  .portal-orb-core {
+    background: var(--portal-orb-core);
+    box-shadow: var(--portal-orb-glow);
+  }
+
+  .portal-action-active {
+    box-shadow: var(--portal-action-active-shadow);
+  }
+
+  .text-success {
+    color: var(--color-success);
+  }
+
+  .bg-success-muted {
+    background: var(--color-success-muted);
+  }
+
+  .animate-spin-slow {
+    animation: spin 8s linear infinite;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-portal-spin {
+    animation: portal-spin 3s linear infinite;
+  }
+
+  .animate-portal-spin-reverse {
+    animation: portal-spin-reverse 5s linear infinite;
+  }
+
+  .animate-portal-pulse {
+    animation: portal-pulse 4s ease-in-out infinite;
+  }
+
+  .animate-portal-particle-expand {
+    animation: portal-particle-expand 3s ease-out infinite;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  .custom-scrollbar {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
-p {
-  margin: 0;
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+@keyframes portal-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+@keyframes portal-spin-reverse {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes portal-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes portal-particle-expand {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* RainbowKit modal title override: "Connect a Wallet" -> "COTI Wallet" */
+#rk_connect_title {
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+#rk_connect_title::after {
+  content: "COTI Wallet";
+  font-size: 20px;
+  line-height: 1.4;
+  color: var(--rk-connect-title-color);
 }
