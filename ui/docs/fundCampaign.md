@@ -412,6 +412,111 @@ matching the pod encrypted-transfer flow — both still dead-end at the missing 
 
 ---
 
+## Skill design analysis — how we got here
+
+The live break is not only a contract bug; it is encoded in the Cursor skills that drove
+`sablier-payroll-pod/`. Those skills disagree with each other and with real PoD client-chain
+rules.
+
+| Skill | Path | Intent |
+|-------|------|--------|
+| **Conversion** | `pod-dapp-ports/.cursor/skills/pod-sablier-payroll-conversion/` | Methodology: Sablier → AVAX **client** + COTI **server**, inbox async, no AVAX decrypt |
+| **Port** | `pod-dapp-ports/.cursor/skills/pod-sablier-payroll-port/` | Implement/debug `sablier-payroll-pod/` with **minimal story edits** (Sablier-shaped API) |
+
+**Verdict:** conversion’s core model is mostly right for PoD. The port skill (and the shipped
+`PayrollCampaignFacade`) contradicted that model by treating the AVAX surrogate like a
+COTI-native MPC chain. Sim dual-precompile green tests then masked the live Fuji failure.
+
+### Critical clash (conversion vs port)
+
+**Conversion** (`SKILL.md` / `conversion-to-pod.md`) says:
+
+- AVAX is the **client** — submit inbox requests, hold pToken, forward opaque `itUint*`
+- COTI is the **server** — all MPC (`validateCiphertext`, `eq256`, ledger)
+- AVAX must **never** decrypt or branch on plaintext salary
+- Explicit anti-pattern: `MpcCore.decrypt` on AVAX
+
+**Port** (`SKILL.md` iteration 7) says:
+
+- Inject sim MPC precompile on **both** `cotiViem` **and** `sepoliaViem`
+- `registerUserOnDualSim` so facade `validateCiphertext` / `_deductPool` run on AVAX
+- Funding: encrypted transfer + **`ackPoolCredit` with local
+  `offBoard(validateCiphertext(it))` on the facade**
+
+That is the opposite of “AVAX never runs MPC.” The port skill **institutionalized** the
+architecture that live Fuji rejects (`eth_getCode(0x64) = 0x`).
+
+```mermaid
+flowchart LR
+  subgraph conversion [Conversion skill - intended PoD]
+    A1[AVAX: inbox only] --> C1[COTI: real 0x64 MPC]
+  end
+  subgraph port [Port skill - what sim taught]
+    A2[AVAX: fake 0x64 + local MpcCore] --> C2[COTI: also MPC]
+  end
+  port -.->|passes sim| Green[35/35]
+  port -.->|fails Fuji| Red[ackPoolCredit ~28k gas]
+```
+
+### Problems in `pod-sablier-payroll-conversion`
+
+| Issue | Why it hurts |
+|--------|----------------|
+| **Correct rules, weak enforcement** | Says no AVAX decrypt / no plaintext payout, but never says “no `MpcCore.validateCiphertext` / `onBoard` / `offBoard` on AVAX either.” Port filled that gap wrongly. |
+| **Funding story ≠ live UI** | Default: `PrivacyPortal.deposit` **into vault**. Port later forbids portal for campaign fund (treasury → pToken → facade). Skills disagree; UI followed port + public transfer. |
+| **Hard-requires `pToken.transfer(itUint256)`** | “Do not use public `safeTransfer`.” On live Fuji, IT settle fails (retest: submit OK, no callback in 300s). Skill has no fallback (public `uint256` overload + COTI-authorized amount). |
+| **Assumes IT is always the privacy win** | Public wire amount can be acceptable for fund/payout if pool math stays on COTI; skill treats public transfer as forbidden without nuance. |
+| **Stale / dual reference impls** | Points at `/tmp/pod-payroll-eval/` and early `PayrollVault` patterns (inbox-only AVAX) **and** the later facade port — agents can follow either. |
+| **“No AVAX index” vs Sablier UX** | Locked fork decision; port reintroduced index/facade API for story compatibility — another silent fork. |
+| **Out of scope: Fuji deploy** | Declares Fuji/mainnet out of scope, so the skill never had to confront “0x64 doesn’t exist on AVAX.” |
+
+What conversion got **right:** nested async verify → transfer; COTI `registerLeaf` /
+`verifyAndCredit`; no decrypt in AVAX **callback**; merkle as commitments + COTI `eq256`.
+
+### Problems in `pod-sablier-payroll-port`
+
+| Issue | Why it hurts |
+|--------|----------------|
+| **Sim MPC parity as product design** | “Facade `validateCiphertext` runs on AVAX surrogate same as COTI” is a **test harness trick**, documented as if it were the architecture. |
+| **`ackPoolCredit` on AVAX** | Local network-key pool ledger on the client chain — cannot work on real Fuji/Sepolia. |
+| **Claim `_deductPool` on AVAX** | Same empty-precompile failure mode for every claim/clawback. |
+| **“Do not snapshot `balanceOf` ct”** | Correct for key type, but the fix chosen (`ackPoolCredit` + local MPC) is still non-PoD on a real client chain. |
+| **Success metric = sim 35/35** | No gate: “must pass with **no** AVAX precompile / inbox-only AVAX.” |
+| **IT funding as default** | Encrypted fund + ack; no guidance when IT settle is broken on live networks. |
+| **Minimal story edits** | Forced Sablier-shaped facade (index, sync-looking claim, local pool) over PoD-shaped vault/inbox from conversion. |
+
+### Shared blind spots (both skills)
+
+1. **No “client chain has no `0x64`” rule** — the single fact that kills live `ackPoolCredit`.
+2. **No distinction: local-AES IT vs encryption-service / inbox-bound IT** — UI
+   `buildAckPoolIt` followed port; official `coti-sdk-pod` is inbox + encryption service.
+3. **Green sim ≠ live PoD** — dual `injectSimCotiPrecompile` is never labeled as
+   “sim-only, not deployable.”
+4. **Privacy vs liveness tradeoff** — neither skill says when public `transfer(uint256)`
+   is the correct interim for fund/payout so the product can ship.
+
+### How the skills should align (with the facade rewrite above)
+
+| Topic | Conversion should say | Port should say |
+|--------|----------------------|-----------------|
+| AVAX MPC | **Forbidden:** any `MpcCore.*` on AVAX/Fuji | Facade = public checks + inbox only; pool on COTI |
+| Sim dual precompile | Harness-only; **not** a design target | Document as sim cheat; CI gate without AVAX `0x64` |
+| Fund | Portal seed OK for treasury; campaign fund = pToken to facade | Prefer public `transfer` until IT settle is green; credit pool via COTI inbox |
+| Payout | Prefer encrypted transfer **when settle works**; allow public amount authorized by COTI callback otherwise | `payoutTo` must not assume live IT settle |
+| Definition of done | E2E on sim **and** architecture checklist: zero AVAX `MpcCore` in production bytecode | Same |
+
+### Bottom line
+
+- **Conversion** designed a PoD client/server split, then left a hole (“no decrypt” but not
+  “no local validate/offBoard”).
+- **Port** filled that hole with **Sablier sync semantics + sim dual MPC**, which is why
+  `PayrollCampaignFacade` works in sim and dies on Fuji.
+- Fixing live fund/claim means **updating the port skill (and facade) back toward
+  conversion’s inbox/COTI model**, not adding Fuji AccountOnboard — see
+  [How PayrollCampaignFacade should be rewritten](#how-payrollcampaignfacade-should-be-rewritten-so-fund--transfer-work).
+
+---
+
 ## Diagnostics — alternatives organized
 
 Use this when `ackPoolCredit` fails (~28k gas) or you need to re-prove *why*. Prefer
@@ -492,6 +597,9 @@ flowchart TD
 | Sim precompile at 0x64 (why sim works) | `pod-ecosystem-integration/test/sim-coti/sim-coti-utils.ts` (`registerUserOnSim`) |
 | Official client-chain call pattern | `coti-io/coti-sdk-pod` `src/pod-method-call.ts`, `src/consts.ts` |
 | Iteration write-up | `pod-dapp-ports/sablier-payroll-pod/docs/iterations/ITERATION_07_GAPS.md` |
+| Conversion skill (PoD client/server methodology) | `pod-dapp-ports/.cursor/skills/pod-sablier-payroll-conversion/` |
+| Port skill (sim facade patterns that broke live) | `pod-dapp-ports/.cursor/skills/pod-sablier-payroll-port/SKILL.md` |
+| Skill clash analysis | [Skill design analysis](#skill-design-analysis--how-we-got-here) (this doc) |
 
 ---
 
