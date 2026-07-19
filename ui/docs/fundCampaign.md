@@ -1,7 +1,8 @@
 # Fund campaign flow
 
 **Status: partial** — pTokens can sit on the facade; the campaign still cannot be *used*
-(claims revert) because the encrypted pool ledger never gets credited.
+(claims revert) because the facade's encrypted-pool functions are COTI-native `MpcCore`
+code that cannot execute on a PoD client chain, so the pool ledger never gets credited.
 
 Latest example (tokens on facade, **unacked** pool): `0x5016E770670F1EfD7608cf87D21F98470d8cee50`
 (runId `14`).
@@ -10,14 +11,25 @@ Latest example (tokens on facade, **unacked** pool): `0x5016E770670F1EfD7608cf87
 
 ## The problem (plain language)
 
-Funding a PoD campaign is **two different ledgers**, not one transfer:
+**Root cause — an architecture mismatch, not a platform gap.** `PayrollCampaignFacade`
+is written as a **COTI-native contract**: it calls `MpcCore` synchronously, which only
+works on COTI's gcEVM where address `0x64` is a real precompile. But it is deployed on
+**Avalanche Fuji, a PoD *client* chain** — and under PoD architecture client chains
+*never* execute MPC locally. That is the point of PoD: inputs are encrypted off-chain by
+the encryption service, calls route through the **Inbox** to COTI where the MPC runs,
+and results come back by callback (see the architecture section below). MPC ops
+"missing" on Fuji is by design; the facade uses the wrong idiom for the chain it lives on.
+
+Concretely, funding a PoD campaign is **two different ledgers**, not one transfer:
 
 1. **pToken balance on the facade** — garbled ERC-20-style balance after a cross-chain
-   settle. This part works today (public `transfer` + inbox callback).
+   settle. This part works today precisely because `PodERC20` **follows** PoD
+   architecture (public `transfer` + inbox callback).
 2. **Encrypted pool ledger `_poolBalanceCt` on the facade** — what `claim` / `clawback`
    actually debit via `_deductPool`. This is **not** filled by the pToken transfer. The
    employer must call `ackPoolCredit(itUint256)`, which runs
-   `MpcCore.validateCiphertext` **locally on Avalanche Fuji**.
+   `MpcCore.validateCiphertext` **locally on Avalanche Fuji** — the COTI-native pattern
+   that cannot execute on a client chain.
 
 ```mermaid
 flowchart LR
@@ -33,7 +45,7 @@ flowchart LR
   T --> A --> V --> P --> C
 ```
 
-**What breaks — root cause (2026-07-19, proven on-chain):** every `MpcCore` operation
+**Mechanical symptom (2026-07-19, proven on-chain):** every `MpcCore` operation
 compiles into a high-level Solidity call to `ExtendedOperations(address(0x64))`
 (`MPC_PRECOMPILE` in `MpcInterface.sol`). That address is a gcEVM precompile that only
 exists on COTI's chain. On live Fuji, `eth_getCode(0x…64)` returns `0x` — **there is no
@@ -63,21 +75,43 @@ the call genuinely always reverts; the explicit gas limit just moved the failure
 | COTI AccountOnboard | Working — key was recovered / pinned here |
 | Code at `0x…64` on live Fuji | **Absent** (`eth_getCode` → `0x`) — every local `MpcCore` op reverts at the extcodesize guard |
 | "Fuji MPC user registration" | Not a real thing on a vanilla client chain — see the SDK pattern below |
-| Result | `ackPoolCredit` (and `claim` / `clawback`) can never execute on live Fuji as deployed |
+| Result | Facade violates PoD architecture — `ackPoolCredit` / `claim` / `clawback` are COTI-native code that can never execute on live Fuji as deployed |
 
 **Why simCOTI passes but live Fuji does not:** the sim *places* a `SimExtendedOperations`
 contract at address 0x64 (`viem.getContractAt("SimExtendedOperations", MPC_PRECOMPILE)`)
 and `simRegisterUserKey` registers AES keys **on that contract** (`registerUserOnDualSim`
 does it on both the AVAX surrogate and simCOTI). Registration only matters once code
 exists at 0x64; on a public chain nothing can ever be deployed to a precompile-range
-address.
+address. In other words, the sim makes the AVAX surrogate behave like a COTI-native
+chain — which is exactly what masked the architecture mismatch until the live runs.
 
 ---
 
-## The official live pattern (coti-sdk-pod)
+## PoD architecture — how encrypted ops really run on a client chain
 
 [`pod-method-call.ts`](https://github.com/coti-io/coti-sdk-pod/blob/main/src/pod-method-call.ts)
-in the official SDK shows that client chains are **never** meant to run MPC locally:
+in the official SDK is the reference: a PoD dApp on a client chain never touches MPC
+directly. The pattern is **encrypt off-chain → call through the inbox → MPC on COTI →
+callback with the result**:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant Enc as PoD encryption service
+  participant App as dApp contract on Fuji
+  participant Inbox as Inbox 0xAb62..4De
+  participant COTI as COTI twin contract + gcEVM MPC
+
+  User->>Enc: buildEncryptedInputs bound to contract + selector + user
+  Enc-->>User: it tuple - ciphertext + signature
+  User->>App: encryptAndCallMethod with two-way fee
+  App->>Inbox: forward method call
+  Inbox-->>COTI: MessageSent requestId
+  COTI->>COTI: validateCiphertext + MPC ops at the real 0x64
+  COTI-->>Inbox: result
+  Inbox-->>App: callback selector with result
+```
 
 - Encrypted inputs are built by COTI's off-chain **encryption service**
   (`CotiPodCrypto.encrypt` → HTTP `buildEncryptedInputs`), bound to
@@ -86,17 +120,40 @@ in the official SDK shows that client chains are **never** meant to run MPC loca
   `0xAb625bE229F603f6BBF964474AFf6d5487e364De` (same address on Fuji 43113, Sepolia, and
   COTI testnet), paying two-way fees via `calculateTwoWayFeeRequiredInLocalToken`.
 - The MPC work executes **on COTI**; results return via callback
-  (`MessageSent` / requestId).
+  (`MessageSent` / requestId → `callbackSelector` / `errorSelector`).
 
-That is exactly how the official pMTT PodERC20 works on Fuji — which is why token
-transfers settle while the facade's local `MpcCore` functions cannot.
+### PoD compliance of our stack
 
-**Knock-on (fix scope):** the deployed facade bytecode contains the `OnBoard`,
-`CheckedSub`, and `Decrypt` selectors — `_deductPool`, `claim`, and `clawback` all call
-0x64 too. Fixing ack alone is not enough; every claim would revert the same way. The
-claim payout leg additionally uses the encrypted `pToken.transfer(to, itUint256, …)`
-overload, which bricks senders (below). **Any real fix must remove all local MpcCore
-usage from the Fuji-side contracts.**
+| Component | Follows PoD? | Consequence on live Fuji |
+|-----------|--------------|--------------------------|
+| `PodERC20` pMTT (mint, public transfer) | Yes — inbox round trip, MPC on COTI | Works; transfers settle |
+| MTT Portal deposit | Yes — inbox round trip | Works |
+| Facade `ackPoolCredit` | **No** — local `validateCiphertext` + `offBoard` | Reverts; nothing at 0x64 |
+| Facade `claim` / `_deductPool` | **No** — local `onBoard` / `checkedSub` / `decrypt` / `offBoard` | Would revert even if ack passed |
+| Facade `clawback` | **No** — local `validateCiphertext` + `_deductPool` | Same |
+| `buildAckPoolIt` (local-AES IT) | **No** — COTI-native IT format | Validates on COTI, meaningless on Fuji; PoD ITs come from the encryption service |
+| Claim payout leg (`pToken.transfer(to, it, …)`) | Yes in pattern, but the encrypted overload is broken on testnet | Bricks sender (below) |
+
+The facade's synchronous "validate → store ct → deduct with encrypted compare" flow is a
+**COTI-native idiom transplanted onto a client chain**. Under PoD, each of those steps is
+an async request/callback pair — or lives on the COTI side entirely. Fixing ack alone is
+not enough: the deployed facade bytecode also carries the `OnBoard`, `CheckedSub`, and
+`Decrypt` call selectors, so every claim dies the same way. **Any real fix must remove
+all local MpcCore usage from the Fuji-side contracts.**
+
+### What a PoD-correct fund/ack looks like (target design)
+
+1. **Fund** — pToken to facade: unchanged, already PoD-compliant.
+2. **Ack** — employer calls the facade via `PodContract.encryptAndCallMethod`; the IT
+   comes from the encryption service; the facade forwards a `creditPool` request through
+   the inbox to `PrivatePayrollCoti` on COTI.
+3. **COTI side** — `validateCiphertext` runs where 0x64 is real; `_poolBalanceCt` and the
+   `_deductPool` encrypted compare live on COTI.
+4. **Callback** — COTI reports success; the facade flips a funded flag / emits the event
+   the UI waits on.
+5. **Claim** — the facade keeps the public checks it can do locally (Merkle proof,
+   claimed bitmap, fees), forwards the pool deduct through the inbox, and the COTI
+   callback triggers the vault payout.
 
 **Secondary breakage (transfer):** encrypted `pToken.transfer(to, itUint256, …)` leaves the
 sender `TransferAlreadyPending` forever on Fuji↔COTI testnet. The UI/tests use the public
@@ -234,7 +291,7 @@ This only works in sim because `SimExtendedOperations` is planted at 0x64. Nativ
 
 | # | Option | Feasible? | Notes |
 |---|--------|-----------|-------|
-| 1 | **PoD-canonical redesign**: move `_poolBalanceCt` + `_deductPool` to COTI (`PrivatePayrollCoti`); facade forwards ack/claim through the Fuji inbox (`PodContract.encryptAndCallMethod`, encryption-service ITs); COTI callbacks update Fuji state | **Yes — the real fix** | New deploy; matches how PodERC20 itself works. Employer's COTI onboarding + `.env` AES already validate ITs on COTI |
+| 1 | **Adopt PoD architecture** (the intended design, not a workaround): move `_poolBalanceCt` + `_deductPool` to COTI (`PrivatePayrollCoti`); facade forwards ack/claim through the Fuji inbox (`PodContract.encryptAndCallMethod`, encryption-service ITs); COTI callbacks update Fuji state | **Yes — the real fix** | New deploy; makes the facade a proper PoD app, like PodERC20 already is. See the target design above |
 | 2 | Drop encrypted ack; credit pool from the pToken settle callback | Yes — pairs with 1 | Fund path is already the public-amount transfer, so the amount is public on the wire anyway; deletes `ackPoolCredit` as a concept |
 | 3 | Demo-only shim: deploy a `SimExtendedOperations`-style validator at a normal Fuji address; recompile with `MPC_PRECOMPILE` repointed | Demo only — **insecure** | AES keys sit in public contract storage, readable by anyone; must never be described as private |
 | 4 | E2E today: Anvil/Hardhat fork of Fuji with `setCode` at 0x64 (or keep simCOTI) | Yes — zero deploys | Same trick as the eth_call state-override proof; unblocks fund→ack→claim in CI now |
