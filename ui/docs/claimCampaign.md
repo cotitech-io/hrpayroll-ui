@@ -142,8 +142,21 @@ pinned `CLAIM_AES_KEY` separates the hypotheses cleanly:
 | Claim completes (`hasClaimed` flips) | Cause 1 was the root cause: `validateCiphertext` rejects wrong-key ciphertexts. Cause 2 is wrong — miner-relayed user ITs work; retract the iter09 architecture claim (keep the inbox-hardening + sim-fidelity companion fixes). |
 | Still `ENCODE_FAILED` on the inbox | Encryption exonerated: cause 2 (tx-context binding) stands, iter09 proceeds. |
 
-Rerun status: **in progress** (test wired to `CLAIM_AES_KEY`, fresh campaign).
-Record the resulting requestId + `errors(requestId)` here once it lands.
+Rerun log:
+
+1. **Full-suite rerun (2026-07-19 19:44): inconclusive** — hit vitest's 900 s test
+   timeout before the claim leg ran (funder COTI onboarding + portal mint settle +
+   credit round-trip consumed the budget; no `submitPayload`/`claim` tx was sent).
+   Not wasted: it staged a fresh campaign end-to-end on live — **runId 5**, facade
+   `0xaec2D504f7554344c5175689fDfF294998a1b9bB`, leaf 0 registered, pool credited
+   100 pMTT, facade topped up with AVAX — and its three fund messages (nonces
+   `0x9d`–`0x9f`: portal mint, pToken transfer, `creditPool`) all delivered on the
+   COTI inbox **with no error recorded**, reconfirming plain-arg messages pass.
+2. **Claim-only rerun against runId 5: in progress** — rebuilds the claim package
+   from the facade's on-chain `amountCommitment(0)` (single-leaf tree, empty proof)
+   and runs just `claimOnChain` with the IT encrypted under the pinned
+   `CLAIM_AES_KEY`. Verdict comes from `errors(nonce 0xa0)` on the COTI inbox plus
+   `PayoutVerified` / `hasClaimed`. Record the result here when it lands.
 
 ### Why simCOTI passes and the fund path works
 
