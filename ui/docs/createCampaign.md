@@ -90,7 +90,7 @@ flowchart LR
   F[Fuji createCampaign OK] --> O{COTI registerRun}
   O -->|success| L[registerLeaf…]
   O -->|mempool drop / nonce| X[Orphan facade]
-  X --> M[Facade exists on Fuji<br/>runId not on COTI]
+  X --> M[Facade exists on Fuji / runId not on COTI]
 
   style X fill:#f8d7da,stroke:#721c24
   style M fill:#f8d7da,stroke:#721c24

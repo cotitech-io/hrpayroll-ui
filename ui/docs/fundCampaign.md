@@ -13,41 +13,40 @@ Latest example (funded tokens, **unacked** pool): facade
 ```mermaid
 sequenceDiagram
   autonumber
-  actor Emp as Employer / funder
-  participant Fuji as Avalanche Fuji
+  actor Emp as Employer or funder
   participant Portal as MTT Portal
-  participant pToken as pToken (PodERC20)
+  participant pToken as pToken PodERC20
   participant Facade as Campaign facade
-  participant COTI as COTI / inbox
-  participant MPC as Fuji MPC ValidateCiphertext
+  participant COTI as COTI inbox
+  participant MPC as Fuji MPC
 
-  Note over Emp,Portal: Test-only seed (not in UI hook)
-  Emp->>Portal: MTT → pMTT mint to funder
+  Note over Emp,Portal: Test-only seed - not in UI hook
+  Emp->>Portal: MTT to pMTT mint to funder
   Portal-->>pToken: mint settles via inbox
-  Note right of Portal: OK — same settle path as public transfer
+  Note right of Portal: OK - same settle path as public transfer
 
-  Emp->>pToken: balanceOfWithStatus idle?
-  Note right of pToken: OK — blocks if TransferAlreadyPending
+  Emp->>pToken: balanceOfWithStatus idle
+  Note right of pToken: OK - blocks if TransferAlreadyPending
 
-  Emp->>Emp: computePTokenTwoWayFees (2× live gas)
-  Note right of Emp: OK — avoids CallbackFeeTooLow
+  Emp->>Emp: computePTokenTwoWayFees at 2x live gas
+  Note right of Emp: OK - avoids CallbackFeeTooLow
 
-  alt BROKEN path — encrypted IT transfer
-    Emp->>pToken: transfer(to, itUint256, callbackFee)
+  alt BROKEN path - encrypted IT transfer
+    Emp->>pToken: transfer to itUint256 callbackFee
     pToken->>COTI: cross-chain request
-    Note right of COTI: BROKEN — callback never lands<br/>sender stuck pending forever
-  else Working path — public amount transfer
-    Emp->>pToken: transfer(to, amount, callbackFee) + value
+    Note right of COTI: BROKEN - callback never lands, sender stuck pending forever
+  else Working path - public amount transfer
+    Emp->>pToken: transfer to amount callbackFee plus value
     pToken->>COTI: cross-chain request
-    COTI-->>pToken: Transfer event (settled)
-    Note right of pToken: OK — facade receives garbled balance
+    COTI-->>pToken: Transfer event settled
+    Note right of pToken: OK - facade receives garbled balance
   end
 
-  Emp->>Emp: buildAckPoolIt (AES + sign as admin)
-  Emp->>Facade: ackPoolCredit(ackIt)
+  Emp->>Emp: buildAckPoolIt AES and sign as admin
+  Emp->>Facade: ackPoolCredit ackIt
   Facade->>MPC: ValidateCiphertext
-  Note right of MPC: BROKEN — reverts ~28k gas<br/>coti-ethers onboard fails on Fuji
-  Note over Facade: Tokens sit on facade;<br/>encrypted pool balance stays 0
+  Note right of MPC: BROKEN - reverts ~28k gas, coti-ethers onboard fails on Fuji
+  Note over Facade: Tokens sit on facade but encrypted pool balance stays 0
 ```
 
 ---
@@ -65,7 +64,7 @@ flowchart TD
   F -->|OK| G[4. Wait Transfer / TransferFailed]
   G -->|OK| H[5. ackPoolCredit on facade]
   H -->|BROKEN| I[ValidateCiphertext revert]
-  I --> J[Facade has tokens<br/>pool ledger empty]
+  I --> J[Facade has tokens / pool ledger empty]
   H -.->|if it worked| K[6. Optional AVAX top-up]
   K -->|OK| L[Claims can draw pool]
 
@@ -104,8 +103,8 @@ flowchart TB
   subgraph works [Working today]
     W1[Create campaign]
     W2[Portal mint to funder]
-    W3[Public pToken → facade]
-    W4[Fee quote at 2× gas]
+    W3[Public pToken to facade]
+    W4[Fee quote at 2x gas]
   end
 
   subgraph breaks [Broken today]
