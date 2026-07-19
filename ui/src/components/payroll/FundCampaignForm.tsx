@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { parseUnits, type Hex } from 'viem'
+import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
 import { useFundCampaign } from '../../hooks/useFundCampaign'
 import { PTOKEN_DECIMALS } from '../../lib/format'
@@ -57,7 +58,7 @@ export function FundCampaignForm({
         {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
       </Button>
       {fundCampaign.isPending && stage && <p style={{ opacity: 0.7 }}>{stage}</p>}
-      {fundCampaign.error && <p style={{ color: 'crimson' }}>{(fundCampaign.error as Error).message}</p>}
+      {fundCampaign.error && <InlineError>{(fundCampaign.error as Error).message}</InlineError>}
       {successMessage && fundCampaign.isSuccess && <p style={{ color: 'green' }}>{successMessage}</p>}
     </>
   )

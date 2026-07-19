@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAccount } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
+import { ConnectPrompt } from '../components/ConnectPrompt'
 import { CampaignDeployedSummary } from '../components/payroll/CampaignDeployedSummary'
 import { CampaignOwnerCheck } from '../components/payroll/CampaignOwnerCheck'
 import { CreatePayroll } from '../components/payroll/CreatePayroll'
@@ -19,11 +20,7 @@ export function EmployerPage() {
   const createCampaign = useCreateCampaign((s) => setDeployStages((prev) => [...prev, s]))
 
   if (!isConnected) {
-    return (
-      <div>
-        <p>Connect a wallet to create or fund a payroll.</p>
-      </div>
-    )
+    return <ConnectPrompt message="Connect a wallet to create or fund a payroll." />
   }
 
   return (

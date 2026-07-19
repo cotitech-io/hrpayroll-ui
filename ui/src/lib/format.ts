@@ -6,3 +6,7 @@ export const PTOKEN_DECIMALS = 18
 export function formatPMtt(raw: bigint | string): string {
   return (Number(raw) / 10 ** PTOKEN_DECIMALS).toLocaleString()
 }
+
+export function shortAddr(addr: string): string {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}

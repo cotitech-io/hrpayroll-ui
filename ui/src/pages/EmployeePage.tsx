@@ -1,63 +1,18 @@
 import { useState } from 'react'
 import { useAccount, useReadContract } from 'wagmi'
-import { usePrivateUnlock, usePrivacyBridgeUnlock, usePrivateTokenBalance } from '@coti-io/coti-wallet-plugin'
+import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
+import { ConnectPrompt } from '../components/ConnectPrompt'
+import { ClaimAction } from '../components/claim/ClaimAction'
+import { ClaimDetails } from '../components/claim/ClaimDetails'
+import { ClaimPackageInput } from '../components/claim/ClaimPackageInput'
+import { PTokenBalance } from '../components/claim/PTokenBalance'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
-import { parseClaimPackage, type ClaimPackage } from '../lib/claimPackage'
-import { useClaimFlow } from '../hooks/useClaimFlow'
-
-function PTokenBalance() {
-  const { address } = useAccount()
-  const { sessionAesKey } = usePrivacyBridgeUnlock()
-  const { fetchPrivateBalance } = usePrivateTokenBalance()
-  const [balance, setBalance] = useState<string | null>(null)
-  const [isFetching, setIsFetching] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function refresh() {
-    if (!address || !sessionAesKey) return
-    setIsFetching(true)
-    setError(null)
-    try {
-      // pMTT uses 18 decimals; 256-bit ciphertext storage matches the ctUint256 balance type
-      // used throughout the payroll/pToken contracts. Passing AVAX_CHAIN_ID forces a plain RPC
-      // read instead of routing through window.ethereum directly — without it, this call
-      // silently depends on whatever network the wallet extension currently has *selected*
-      // and returns "0.00" with no error if that's not Fuji.
-      const result = await fetchPrivateBalance(address, sessionAesKey, avaxContracts.pToken.address, 256, 18, AVAX_CHAIN_ID)
-      setBalance(result)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setIsFetching(false)
-    }
-  }
-
-  return (
-    <p style={{ marginBottom: '1rem' }}>
-      <a
-        href={`https://testnet.snowtrace.io/address/${avaxContracts.pToken.address}`}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        pMTT
-      </a>{' '}
-      balance: <strong>{balance ?? '—'}</strong>{' '}
-      <button type="button" onClick={refresh} disabled={!sessionAesKey || isFetching}>
-        {isFetching ? 'Refreshing…' : 'Refresh balance'}
-      </button>
-      {error && <span style={{ color: 'crimson' }}> {error}</span>}
-    </p>
-  )
-}
+import type { ClaimPackage } from '../lib/claimPackage'
 
 export function EmployeePage() {
   const { isConnected } = useAccount()
   const { isUnlocked, unlock } = usePrivateUnlock()
-  const [pkgText, setPkgText] = useState('')
   const [pkg, setPkg] = useState<ClaimPackage | null>(null)
-  const [parseError, setParseError] = useState<string | null>(null)
-  const [payoutTo, setPayoutTo] = useState('')
-  const claim = useClaimFlow()
 
   const { data: alreadyClaimed } = useReadContract({
     address: pkg?.facadeAddress,
@@ -68,28 +23,8 @@ export function EmployeePage() {
     query: { enabled: !!pkg?.facadeAddress },
   })
 
-  function handlePkgChange(text: string) {
-    setPkgText(text)
-    if (!text.trim()) {
-      setPkg(null)
-      setParseError(null)
-      return
-    }
-    try {
-      setPkg(parseClaimPackage(text))
-      setParseError(null)
-    } catch (e) {
-      setPkg(null)
-      setParseError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
   if (!isConnected) {
-    return (
-      <div>
-        <p>Connect a wallet to claim your payroll.</p>
-      </div>
-    )
+    return <ConnectPrompt message="Connect a wallet to claim your payroll." />
   }
 
   return (
@@ -105,56 +40,12 @@ export function EmployeePage() {
 
       {isUnlocked && <PTokenBalance />}
 
-      <label>
-        Paste your claim package (JSON from your employer)
-        <textarea
-          rows={6}
-          style={{ width: '100%', fontFamily: 'monospace' }}
-          value={pkgText}
-          onChange={(e) => handlePkgChange(e.target.value)}
-          placeholder='{"facadeAddress":"0x...","index":0,"recipient":"0x...","amount":"2500","amountCommitment":"0x...","proof":["0x...",...]}'
-        />
-      </label>
-      {parseError && <p style={{ color: 'crimson' }}>{parseError}</p>}
+      <ClaimPackageInput onChange={setPkg} />
 
       {pkg && (
         <div style={{ marginTop: '1rem' }}>
-          <dl>
-            <dt>Campaign facade</dt>
-            <dd>{pkg.facadeAddress}</dd>
-            <dt>Index</dt>
-            <dd>{pkg.index}</dd>
-            <dt>Recipient</dt>
-            <dd>{pkg.recipient}</dd>
-            <dt>Amount</dt>
-            <dd>{pkg.amount}</dd>
-            <dt>Already claimed?</dt>
-            <dd>{String(alreadyClaimed ?? '—')}</dd>
-          </dl>
-
-          <label>
-            Send to a different address (optional — leave blank to claim to your own wallet)
-            <input
-              type="text"
-              style={{ width: '100%' }}
-              value={payoutTo}
-              onChange={(e) => setPayoutTo(e.target.value)}
-              placeholder="0x…"
-            />
-          </label>
-
-          <button
-            type="button"
-            disabled={!isUnlocked || alreadyClaimed === true || claim.isPending}
-            onClick={() => claim.mutate({ pkg, payoutTo: (payoutTo.trim() || undefined) as `0x${string}` | undefined })}
-            style={{ marginTop: '0.75rem' }}
-          >
-            {claim.isPending ? 'Claiming…' : 'Claim'}
-          </button>
-
-          {claim.error && <p style={{ color: 'crimson' }}>{(claim.error as Error).message}</p>}
-          {claim.data?.status === 'completed' && <p style={{ color: 'green' }}>Claim completed.</p>}
-          {claim.data?.status === 'pending' && <p style={{ color: 'orange' }}>{claim.data.message}</p>}
+          <ClaimDetails pkg={pkg} alreadyClaimed={alreadyClaimed} />
+          <ClaimAction pkg={pkg} disabled={!isUnlocked || alreadyClaimed === true} />
         </div>
       )}
     </div>

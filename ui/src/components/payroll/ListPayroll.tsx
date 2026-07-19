@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { AddressLink } from '../AddressLink'
+import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
 import { useEmployerCampaigns, type EmployerCampaign } from '../../hooks/useEmployerCampaigns'
 import { ExportClaimPackagesModal } from './ExportClaimPackagesModal'
@@ -11,7 +13,7 @@ export function ListPayroll() {
   const [exportingFor, setExportingFor] = useState<EmployerCampaign | null>(null)
 
   if (isLoading) return <p style={{ opacity: 0.7 }}>Loading your previous campaigns…</p>
-  if (error) return <p style={{ color: 'crimson' }}>{(error as Error).message}</p>
+  if (error) return <InlineError>{(error as Error).message}</InlineError>
   if (!campaigns || campaigns.length === 0) return null
 
   return (
@@ -34,13 +36,7 @@ export function ListPayroll() {
               <td>{c.runId.toString()}</td>
               <td>{c.campaignName}</td>
               <td>
-                <a
-                  href={`https://testnet.snowtrace.io/address/${c.facadeAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {c.facadeAddress.slice(0, 6)}…{c.facadeAddress.slice(-4)}
-                </a>
+                <AddressLink address={c.facadeAddress} />
               </td>
               <td>{c.hasExpired ? 'Expired' : 'Active'}</td>
               <td>{c.hasReceivedFunds ? 'Funded' : 'Not funded'}</td>

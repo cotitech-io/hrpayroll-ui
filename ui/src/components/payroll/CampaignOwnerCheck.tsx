@@ -1,4 +1,5 @@
 import { useAccount, useReadContract } from 'wagmi'
+import { InlineError } from '../InlineError'
 import { cotiTestnetContracts, COTI_TESTNET_CHAIN_ID } from '../../config/contracts'
 
 // Campaign creation on Fuji is permissionless via the factory, but registering the roster on
@@ -14,9 +15,9 @@ export function CampaignOwnerCheck() {
   if (!owner || !address) return null
   if (owner.toLowerCase() === address.toLowerCase()) return null
   return (
-    <p style={{ color: 'crimson' }}>
+    <InlineError>
       Connected wallet is not the PrivatePayrollCoti owner ({owner}). Campaign creation will fail at the
       COTI roster-registration step until you connect that wallet.
-    </p>
+    </InlineError>
   )
 }

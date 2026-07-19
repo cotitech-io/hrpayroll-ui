@@ -1,8 +1,6 @@
+import { InlineError } from '../components/InlineError'
 import { useActivityFeed, type ActivityEvent } from '../hooks/useActivityFeed'
-
-function shortAddr(addr: string): string {
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
-}
+import { shortAddr } from '../lib/format'
 
 function describeEvent(e: ActivityEvent): string {
   switch (e.type) {
@@ -34,7 +32,7 @@ export function ActivityPage() {
 
       <h2>Recent activity</h2>
       {feed.isLoading && <p>Scanning recent blocks for events…</p>}
-      {feed.error && <p style={{ color: 'crimson' }}>Error: {(feed.error as Error).message}</p>}
+      {feed.error && <InlineError>Error: {(feed.error as Error).message}</InlineError>}
       {feed.data && feed.data.length === 0 && <p style={{ opacity: 0.7 }}>No events in the last ~100k blocks.</p>}
       {feed.data && feed.data.length > 0 && (
         <ul>

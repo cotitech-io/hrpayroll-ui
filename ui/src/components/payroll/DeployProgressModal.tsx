@@ -1,3 +1,4 @@
+import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
 import { Modal } from '../ui/modal'
 
@@ -27,7 +28,7 @@ export function DeployProgressModal({
           </li>
         ))}
       </ul>
-      {error && <p style={{ color: 'crimson', marginTop: '0.75rem' }}>{error.message}</p>}
+      {error && <InlineError style={{ marginTop: '0.75rem' }}>{error.message}</InlineError>}
       {!isPending && (
         <Button type="button" className="mt-4" onClick={onClose}>
           Close
