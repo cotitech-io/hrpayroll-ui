@@ -20,7 +20,7 @@ flowchart LR
     IT[Encrypted IT pToken.transfer]
   end
   C --> S --> T --> A
-  IT -.->|stalls sender forever| X[TransferAlreadyPending]
+  IT -.->|no callback in 300s retest| X[Sender pending stuck]
 ```
 
 ### Legend used in the flow docs

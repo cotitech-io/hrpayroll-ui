@@ -155,10 +155,31 @@ all local MpcCore usage from the Fuji-side contracts.**
    claimed bitmap, fees), forwards the pool deduct through the inbox, and the COTI
    callback triggers the vault payout.
 
-**Secondary breakage (transfer):** encrypted `pToken.transfer(to, itUint256, …)` leaves the
-sender `TransferAlreadyPending` forever on Fuji↔COTI testnet. The UI/tests use the public
-`transfer(to, uint256, callbackFee)` overload so the facade can still receive tokens. That
-workaround does **not** fix ack.
+### Encrypted `transfer(itUint256)` — mechanism + live retest (2026-07-19)
+
+**Mechanism (not IT-specific):** `PodERC20` sets `_pendingTransferRequestIds[from|to]` on
+*both* `transfer(to, itUint256, …)` and `transfer(to, uint256, …)`, and clears that flag
+only in `transferCallback` / `transferError`. A sender is “bricked” when the Fuji submit
+succeeds but the COTI callback never returns — then the next transfer reverts
+`TransferAlreadyPending`. Public and IT share this lock; IT is not a different pending
+machine.
+
+**Live retest (fresh account, correct fees + COTI-onboarded AES):**
+
+| Step | Result |
+|------|--------|
+| Ephemeral funder | `0x8d7a4fBbb12EB0FEE893D7653fa123760f6Af438` (salt `it-retest-v1`) |
+| Portal mint 1 pMTT (public) | Settled (`0x1ba067b9…`) — pending cleared |
+| `buildTransferIt` → inbox + `batchProcessRequests` | Built with funder’s COTI AES |
+| `transfer(to, itUint256, callbackFee)` submit | **Success** tx `0x28a02afa…` (gasUsed ~844k); pending=`true` immediately |
+| Wait 300s for `Transfer` / `TransferFailed` | **Neither event**; pending still `true` |
+| Outcome | **Timeout — callback never landed**; account left pending (same class of stuck as a lost public transfer) |
+
+So the old wording “IT bricks because it is IT” was overstated. The accurate claim:
+**on live Fuji↔COTI today, a correctly built IT transfer still fails to settle within 5
+minutes and leaves the sender pending**, while the public-amount overload (and portal
+mint) settle. UI/tests keep using public `transfer(to, uint256, callbackFee)` for funding
+until IT settle is green. That workaround does **not** fix `ackPoolCredit`.
 
 ---
 
@@ -185,10 +206,10 @@ sequenceDiagram
   Emp->>Emp: computePTokenTwoWayFees at 2x live gas
   Note right of Emp: OK - avoids CallbackFeeTooLow
 
-  alt BROKEN path - encrypted IT transfer
+  alt IT transfer - retested 2026-07-19
     Emp->>pToken: transfer to itUint256 callbackFee
     pToken->>COTI: cross-chain request
-    Note right of COTI: BROKEN - callback never lands, sender stuck pending forever
+    Note right of COTI: Submit OK then no Transfer or TransferFailed in 300s - pending stays true
   else Working path - public amount transfer
     Emp->>pToken: transfer to amount callbackFee plus value
     pToken->>COTI: cross-chain request
@@ -214,7 +235,7 @@ flowchart TD
   C -->|OK| D{3. Which transfer?}
   D -->|IT encrypted| E[transfer itUint256]
   D -->|public uint256| F[transfer amount + fee]
-  E -->|BROKEN| Stuck[Sender TransferAlreadyPending forever]
+  E -->|no callback in 300s| Stuck[Sender pending until callback]
   F -->|OK| G[4. Wait Transfer / TransferFailed]
   G -->|OK| H[5. ackPoolCredit on facade]
   H -->|BROKEN| I[No code at 0x64 - call reverts]
@@ -241,7 +262,7 @@ flowchart TD
 | Portal MTT→pMTT mint | Fuji portal | OK | Used by fund test to seed funder |
 | Idle sender check | pToken `balanceOfWithStatus` | OK | Hard-fails if stuck pending |
 | Fee quote | `podFees.ts` | OK | **2× live Fuji gas**; stale ~0.3 gwei caused `CallbackFeeTooLow` |
-| IT `transfer(to, it, fee)` | pToken | **BROKEN** | Never settle; bricks sender |
+| IT `transfer(to, it, fee)` | pToken | **Fails settle (retested)** | Submit OK; no callback in 300s → pending stuck (same lock as public) |
 | Public `transfer(to, amount, fee)` | pToken | OK | Settles; amount is public |
 | Settle wait | `Transfer` / `TransferFailed` logs | OK | Do not use receiver pending flag |
 | `ackPoolCredit` | Facade → `0x…64` | **BROKEN** | No code at 0x64 on Fuji → extcodesize revert before any validation |
@@ -262,7 +283,7 @@ flowchart TB
   end
 
   subgraph breaks [Broken today]
-    B1[Encrypted pToken.transfer IT]
+    B1[IT transfer no callback in 300s]
     B2[Any local MpcCore call - nothing at 0x64]
     B3[Claim against unacked pool]
   end
