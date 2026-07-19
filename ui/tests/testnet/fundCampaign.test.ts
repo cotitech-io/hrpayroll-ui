@@ -20,9 +20,9 @@ import {
 } from './helpers'
 
 // End-to-end campaign FUNDING against the real networks, mirroring useFundCampaign:
-// encrypted pToken transfer into the facade, wait for the COTI round trip to settle,
-// then ackPoolCredit. Budget: 500 of PRIVATE_KEY3's tokens per run, distributed to the
-// two roster accounts below (250 pMTT each).
+// portal-seed pToken → public transfer into the facade → settle → ackPoolCredit.
+// Budget: 500 of PRIVATE_KEY3's tokens per run, distributed to the two roster accounts
+// below (250 pMTT each).
 //
 // Because PRIVATE_KEY3's own pMTT may be locked from earlier stuck transfers, the seed
 // spends PRIVATE_KEY3's budget from its PUBLIC MTT instead: a PrivacyPortal deposit
@@ -30,15 +30,25 @@ import {
 // facade via PodERC20's public `transfer(to, uint256, uint256)` overload. Encrypted
 // `transfer(to, itUint256, …)` currently leaves senders pending forever on Fuji↔COTI
 // testnet (callback never lands), so the fund path matches the mint path: plaintext
-// amount on the wire, private balances still garbled on-chain. ackPoolCredit still uses
-// an employer/funder IT against the facade.
+// amount on the wire, private balances still garbled on-chain.
+//
+// ackPoolCredit findings (live Fuji, 2026-07-19 — see ui/docs/fundCampaign.md):
+//   • Employer IT is built with PRIVATE_AES_KEY_TESTNET from repo-root .env — the same
+//     AES key as COTI AccountOnboard. There is no separate Fuji AES secret.
+//   • Portal mint + public transfer settle OK; facade holds pTokens.
+//   • ackPoolCredit still reverts at Fuji MpcCore.validateCiphertext (~28k gas), e.g.
+//     facade 0x5016E770… / retry tx 0x63d21cd3… with the pinned .env key.
+//   • Root cause is missing Fuji MPC user registration for that same key (coti-ethers
+//     generateOrRecoverAes on the Fuji RPC → "unable to onboard user"), not a wrong
+//     .env value, wrong selector, or wrong signer. simCOTI works via registerUserOnDualSim.
 //
 // If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
 // Requires in the repo-root .env (helpers load ../../../.env — not ui/.env.local):
 //   PRIVATE_KEY3              — employer/admin; PrivatePayrollCoti owner; pays the 500 MTT
 //                               seed and the funder's one-time gas top-ups.
-//   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's COTI AES key.
+//   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's AES key (COTI onboard; also used for Fuji
+//                               ack IT + decrypting Fuji pToken balances).
 //   PAYROLL_TEST_FUNDER_SALT  — optional; rotates the derived funder account (default v4).
 //   PRIVATE_AES_KEY_FUNDER_<SALT>_TESTNET — optional pin for the funder's AES key.
 
@@ -203,8 +213,14 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       label: 'fund transfer to facade',
     })
 
-    // ackPoolCredit is signed+submitted by the campaign admin (employer). The IT is
-    // validated on Fuji's MPC precompile with the employer's key — not the ephemeral funder.
+    // ackPoolCredit: employer/admin signs+submits (not the ephemeral funder). AES comes
+    // from PRIVATE_AES_KEY_TESTNET (.env) — same key as COTI; do not substitute another.
+    expect(employerAesKey, 'employer AES must be pinned/recovered as PRIVATE_AES_KEY_TESTNET').toBeTruthy()
+    expect(employerAesKey.length, 'PRIVATE_AES_KEY_TESTNET should be 32 hex chars (16-byte AES)').toBe(32)
+    console.info(
+      `[testnet] ackPoolCredit IT with .env AES (len=${employerAesKey.length} prefix=${employerAesKey.slice(0, 8)}…) ` +
+        `employer=${employer.account.address} facade=${campaign.facadeAddress}`,
+    )
     const ackIt = await buildAckPoolIt({
       amount: FUND_TOTAL,
       aesKey: employerAesKey,
@@ -225,10 +241,12 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     expect(
       ackReceipt.status,
       `ackPoolCredit reverted (tx ${ackHash}, gasUsed=${ackReceipt.gasUsed}). ` +
-        'Fuji MpcCore.validateCiphertext rejected the employer IT — usually the account is ' +
-        'not onboarded for the Fuji MPC precompile (coti-ethers generateOrRecoverAes on the ' +
-        'Fuji RPC fails with "unable to onboard user"). Portal mint + public pToken transfer ' +
-        'to the facade already settled; only the encrypted pool ledger ack is blocked.',
+        'Fuji MpcCore.validateCiphertext rejected the employer IT built with PRIVATE_AES_KEY_TESTNET ' +
+        'from .env (same AES as COTI — confirmed; not a wrong-key bug). Live Fuji has no MPC user ' +
+        'registration for that key (coti-ethers generateOrRecoverAes on Fuji RPC → "unable to onboard ' +
+        'user"); ~28k gasUsed is the typical immediate ValidateCiphertext fail. Portal mint + public ' +
+        'pToken transfer to the facade already settled; only the encrypted pool ledger ack is blocked. ' +
+        'See ui/docs/fundCampaign.md.',
     ).toBe('success')
 
     // 4. The funder spent exactly the seeded budget — nothing more, nothing less.

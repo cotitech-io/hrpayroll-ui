@@ -37,28 +37,39 @@ flowchart LR
 (~28k gas). The facade holds tokens, but `_poolBalanceCt` stays empty, so later claims hit
 `InsufficientPoolBalance`.
 
-**Why:** client-chain `ValidateCiphertext` needs the employer’s AES user key registered in
-the **Fuji** MPC / AccountOnboard path. We only have a working onboard on **COTI** testnet.
+**Why (and what is *not* wrong):** the AES key in repo-root `.env`
+(`PRIVATE_AES_KEY_TESTNET`) **is** the correct key. Fund/ack already builds the IT with
+that same value via `buildAckPoolIt({ aesKey: employerAesKey, … })`. There is no second
+Fuji-only AES secret to put in `.env`.
 
-| Chain | `coti-ethers` `generateOrRecoverAes` | Effect |
-|-------|--------------------------------------|--------|
-| COTI testnet | OK | AES key works; COTI ITs (e.g. `registerLeaf`) can validate |
-| Avalanche Fuji | Fails: `unable to onboard user` | Fuji `ValidateCiphertext` rejects employer ITs |
+Having the key locally is not enough. `ValidateCiphertext` on Fuji asks the **Fuji MPC
+node** whether this account’s user key is registered for client-chain IT validation. We
+only completed AccountOnboard on **COTI** testnet (that is where
+`PRIVATE_AES_KEY_TESTNET` came from). Fuji has no working onboard path today, so the
+*same* key encrypts a valid-looking IT that Fuji still rejects.
 
-COTI onboarding uses `AccountOnboard` at `0xe1dA9B857E1196D0BeDBE46960586cBc3F909C17`
-(hardcoded in `@coti-io/coti-ethers`). Pointing that same flow at the Fuji RPC does not
-register the user for Fuji MPC. The COTI AES key can still **decrypt** Fuji pToken
-balances (cross-chain garbled balances use that key), but that is not the same as Fuji
-accepting a signed IT in `validateCiphertext`.
+| Piece | Status |
+|-------|--------|
+| `.env` `PRIVATE_AES_KEY_TESTNET` | Correct key; used for ack IT + decrypting Fuji pToken balances |
+| COTI AccountOnboard | Working — key was recovered / pinned here |
+| Fuji MPC registration for that same key | Missing — `generateOrRecoverAes` on Fuji RPC → `unable to onboard user` |
+| Result | Fuji `ValidateCiphertext` reverts (~28k gas) even though the IT was built with `.env` |
 
-This is **not** a wrong function selector, wrong signer (employer vs funder), or missing
-gas limit bug. UI/test IT shape matches `sablier-payroll-pod`:
+COTI onboarding in `@coti-io/coti-ethers` targets AccountOnboard
+`0xe1dA9B857E1196D0BeDBE46960586cBc3F909C17` (docs also list
+`0x536A67f0…` as AccountOnboard on COTI). Pointing that flow at the Fuji RPC does not
+register the user for Fuji MPC. Decrypting Fuji pToken balances with the COTI `.env` key
+works; Fuji accepting a signed IT in `validateCiphertext` is a separate on-chain/MPC
+registration step.
+
+This is **not** a wrong `.env` key, wrong function selector, wrong signer (employer vs
+funder), or missing gas limit bug. UI/test IT shape matches `sablier-payroll-pod`:
 `ackPoolCredit(((uint256,uint256),bytes))`, employer signs, `FUJI_MPC_IT_GAS` is set.
 
 **Why simCOTI passes but live Fuji does not:** pod tests call `registerUserOnDualSim` /
-`onboardSimUser(..., sepoliaViem)` so the same AES key is registered on **both** the AVAX
-surrogate and simCOTI (`pod-dapp-ports/sablier-payroll-pod`, `ITERATION_07_GAPS.md`).
-Live Fuji has no equivalent dual-chain onboard today.
+`onboardSimUser(..., sepoliaViem)` so the **same** AES key bytes are registered on
+**both** the AVAX surrogate and simCOTI (`ITERATION_07_GAPS.md`). Live Fuji has no
+equivalent “register this `.env` key on the client chain” step today.
 
 **Knock-on:** `claim` and `clawback` also call `ValidateCiphertext` on Fuji. Even after
 tokens land, a full live claim path stays blocked until Fuji MPC user registration works
