@@ -4,16 +4,16 @@ import { useAccount, useReadContract } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { Button } from '../components/ui/button'
 import { Modal } from '../components/ui/modal'
+import { ClaimPackagesTable } from '../components/payroll/ClaimPackagesTable'
+import { ExportClaimPackagesModal } from '../components/payroll/ExportClaimPackagesModal'
+import { FundCampaignForm } from '../components/payroll/FundCampaignForm'
+import { FundCampaignModal } from '../components/payroll/FundCampaignModal'
 import { cotiTestnetContracts, COTI_TESTNET_CHAIN_ID } from '../config/contracts'
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
 import { useEmployerCampaigns, type EmployerCampaign } from '../hooks/useEmployerCampaigns'
-import { useFundCampaign } from '../hooks/useFundCampaign'
-import { downloadClaimPackage, toClaimPackage, withFacadeAddress } from '../lib/claimPackage'
+import { toClaimPackage } from '../lib/claimPackage'
+import { PTOKEN_DECIMALS } from '../lib/format'
 import type { RosterEntry } from '../lib/merkle'
-
-// pMTT uses 18 decimals — see EmployeePage's pToken balance comment.
-const PTOKEN_DECIMALS = 18
-const DEFAULT_FACADE_ETH_TOPUP_WEI = 100_000_000_000_000_000n // 0.1 AVAX reserve for the facade's own future inbox fees (ack/clawback round trips).
 
 type RosterRow = { recipient: string; amount: string }
 
@@ -40,9 +40,6 @@ function PreviousCampaigns() {
   const { data: campaigns, isLoading, error } = useEmployerCampaigns()
   const [fundingFor, setFundingFor] = useState<EmployerCampaign | null>(null)
   const [exportingFor, setExportingFor] = useState<EmployerCampaign | null>(null)
-  const [fundAmount, setFundAmount] = useState('')
-  const [fundStage, setFundStage] = useState<string | null>(null)
-  const fundCampaign = useFundCampaign(setFundStage)
 
   if (isLoading) return <p style={{ opacity: 0.7 }}>Loading your previous campaigns…</p>
   if (error) return <p style={{ color: 'crimson' }}>{(error as Error).message}</p>
@@ -84,10 +81,7 @@ function PreviousCampaigns() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      setFundAmount('')
-                      setFundingFor(c)
-                    }}
+                    onClick={() => setFundingFor(c)}
                   >
                     Fund
                   </Button>
@@ -108,80 +102,8 @@ function PreviousCampaigns() {
         </tbody>
       </table>
 
-      <Modal
-        open={!!fundingFor}
-        onClose={() => setFundingFor(null)}
-        title={`Fund ${fundingFor?.campaignName ?? ''}`}
-      >
-        <label>
-          Amount (pMTT)
-          <input
-            type="text"
-            style={{ width: '100%' }}
-            value={fundAmount}
-            onChange={(e) => setFundAmount(e.target.value)}
-            placeholder="2500"
-          />
-        </label>
-        <Button
-          type="button"
-          className="mt-2"
-          disabled={!fundAmount.trim() || fundCampaign.isPending}
-          onClick={() => {
-            if (!fundingFor) return
-            fundCampaign.mutate(
-              {
-                facadeAddress: fundingFor.facadeAddress,
-                amount: parseUnits(fundAmount || '0', PTOKEN_DECIMALS),
-                facadeEthTopUpWei: DEFAULT_FACADE_ETH_TOPUP_WEI,
-              },
-              { onSuccess: () => setFundingFor(null) },
-            )
-          }}
-        >
-          {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
-        </Button>
-        {fundCampaign.isPending && fundStage && <p style={{ opacity: 0.7 }}>{fundStage}</p>}
-        {fundCampaign.error && <p style={{ color: 'crimson' }}>{(fundCampaign.error as Error).message}</p>}
-      </Modal>
-
-      <Modal
-        open={!!exportingFor}
-        onClose={() => setExportingFor(null)}
-        title={`Claim packages — ${exportingFor?.campaignName ?? ''}`}
-      >
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left' }}>Index</th>
-              <th style={{ textAlign: 'left' }}>Recipient</th>
-              <th style={{ textAlign: 'left' }}>Amount</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {exportingFor?.packages.map((pkg) => (
-              <tr key={pkg.index}>
-                <td>{pkg.index}</td>
-                <td>{pkg.recipient}</td>
-                <td>{(Number(pkg.amount) / 10 ** PTOKEN_DECIMALS).toLocaleString()}</td>
-                <td>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      downloadClaimPackage(withFacadeAddress(pkg, exportingFor.facadeAddress), exportingFor.campaignName)
-                    }
-                  >
-                    Download
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Modal>
+      <FundCampaignModal campaign={fundingFor} onClose={() => setFundingFor(null)} />
+      <ExportClaimPackagesModal campaign={exportingFor} onClose={() => setExportingFor(null)} />
     </div>
   )
 }
@@ -214,14 +136,11 @@ export function EmployerPage() {
   const [csvText, setCsvText] = useState('')
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false)
   const [campaignName, setCampaignName] = useState('Q1 Payroll')
-  const [fundAmount, setFundAmount] = useState('')
-  const [fundStage, setFundStage] = useState<string | null>(null)
   const [result, setResult] = useState<CreateCampaignResult | null>(null)
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false)
   const [deployStages, setDeployStages] = useState<string[]>([])
 
   const createCampaign = useCreateCampaign((s) => setDeployStages((prev) => [...prev, s]))
-  const fundCampaign = useFundCampaign(setFundStage)
 
   function updateRow(i: number, field: keyof RosterRow, value: string) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)))
@@ -409,65 +328,18 @@ export function EmployerPage() {
           </dl>
 
           <h2>3. Fund campaign</h2>
-          <label>
-            Amount (pMTT)
-            <input
-              type="text"
-              style={{ width: '100%' }}
-              value={fundAmount}
-              onChange={(e) => setFundAmount(e.target.value)}
-              placeholder={(Number(totalAmount) / 10 ** PTOKEN_DECIMALS).toString()}
-            />
-          </label>
-          <Button
-            type="button"
-            disabled={!isUnlocked || !fundAmount.trim() || fundCampaign.isPending}
-            onClick={() =>
-              fundCampaign.mutate({
-                facadeAddress: result.facadeAddress,
-                amount: parseUnits(fundAmount || '0', PTOKEN_DECIMALS),
-                facadeEthTopUpWei: DEFAULT_FACADE_ETH_TOPUP_WEI,
-              })
-            }
-          >
-            {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
-          </Button>
-          {fundCampaign.isPending && fundStage && <p style={{ opacity: 0.7 }}>{fundStage}</p>}
-          {fundCampaign.error && <p style={{ color: 'crimson' }}>{(fundCampaign.error as Error).message}</p>}
-          {fundCampaign.isSuccess && <p style={{ color: 'green' }}>Facade funded.</p>}
+          <FundCampaignForm
+            facadeAddress={result.facadeAddress}
+            placeholder={(Number(totalAmount) / 10 ** PTOKEN_DECIMALS).toString()}
+            disabled={!isUnlocked}
+            successMessage="Facade funded."
+          />
 
           <h2>4. Export claim packages</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>Index</th>
-                <th style={{ textAlign: 'left' }}>Recipient</th>
-                <th style={{ textAlign: 'left' }}>Amount</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {result.tree.packages.map((pkg) => (
-                <tr key={pkg.index}>
-                  <td>{pkg.index}</td>
-                  <td>{pkg.recipient}</td>
-                  <td>{(Number(pkg.amount) / 10 ** PTOKEN_DECIMALS).toLocaleString()}</td>
-                  <td>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        downloadClaimPackage(toClaimPackage(pkg, result.facadeAddress), campaignName)
-                      }
-                    >
-                      Download
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ClaimPackagesTable
+            packages={result.tree.packages.map((pkg) => toClaimPackage(pkg, result.facadeAddress))}
+            campaignName={campaignName}
+          />
 
           <Button type="button" variant="secondary" onClick={() => setResult(null)} className="mt-4">
             Start another campaign
