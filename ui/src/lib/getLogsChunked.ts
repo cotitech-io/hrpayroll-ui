@@ -5,10 +5,9 @@ import { avalancheFuji } from 'viem/chains'
 // a lot by chain — confirmed by testing the actual endpoints, not assumed: Sepolia's allows
 // 50,000, Avalanche Fuji's only 2,048. Use a size safe for the smallest known cap.
 const CHUNK_SIZE = 2_000n
-// How many chunk requests to run concurrently. Fuji's tiny cap means covering the same
-// block-count lookback takes far more chunks than Sepolia; fetching them in parallel
-// batches keeps wall-clock time reasonable instead of one request at a time.
-const CONCURRENCY = 10
+// How many chunk requests to run concurrently. Avalanche's public Fuji RPC rate-limits
+// aggressively (429s often surface in the browser as CORS failures). Keep this low.
+const CONCURRENCY = 3
 
 // A dedicated client on Avalanche's own public Fuji RPC, deliberately not the wagmi client
 // wired up by @coti-io/coti-wallet-plugin — its Fuji transport falls back to

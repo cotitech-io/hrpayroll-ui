@@ -15,25 +15,25 @@ export function CustomConnectButton() {
 
         if (!connected) {
           return (
-            <button type="button" onClick={openConnectModal} aria-hidden={!ready}>
+            <button
+              type="button"
+              onClick={openConnectModal}
+              aria-hidden={!ready}
+              className="rounded-xl bg-[#1E29F6] px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#1E29F6]/90"
+            >
               Connect Wallet
             </button>
           )
         }
 
         return (
-          <div
-            className="bg-card border border-border rounded-lg"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem' }}
-          >
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
             {isUnlocked && (
-              // Two separate real buttons, not one nested inside the other — a <button>
-              // cannot validly contain another interactive element, which made the refresh
-              // icon's clicks behave unreliably when it was nested inside the account button.
               <>
                 <span
                   title={error ?? 'pMTT balance'}
-                  style={{ fontSize: '0.9rem', opacity: isFetching ? 0.5 : 0.85, color: error ? 'crimson' : undefined }}
+                  className="text-xs text-slate-500"
+                  style={{ opacity: isFetching ? 0.5 : 1, color: error ? 'crimson' : undefined }}
                 >
                   pMTT {error ? 'error' : (balance ?? '—')}
                 </span>
@@ -43,16 +43,21 @@ export function CustomConnectButton() {
                   title="Refresh pMTT balance"
                   onClick={refresh}
                   disabled={isFetching}
-                  style={{ cursor: isFetching ? 'default' : 'pointer', lineHeight: 1 }}
+                  className="text-slate-400 hover:text-slate-700 disabled:cursor-default"
                 >
                   ↻
                 </button>
-                <span style={{ opacity: 0.6 }}>|</span>
+                <span className="h-3 w-px bg-slate-200" />
               </>
             )}
-            <button type="button" onClick={openAccountModal} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.9rem' }}>{account.displayBalance}</span>
-              <span style={{ fontSize: '0.9rem' }}>{account.displayName}</span>
+            <button
+              type="button"
+              onClick={openAccountModal}
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-800"
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+              <span>{account.displayBalance}</span>
+              <span className="text-slate-500">{account.displayName}</span>
             </button>
           </div>
         )

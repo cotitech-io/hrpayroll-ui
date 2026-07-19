@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useAccount, usePublicClient } from 'wagmi'
-import { getAbiItem, zeroAddress, type Hex } from 'viem'
+import { zeroAddress, type Hex } from 'viem'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
 import { loadCampaign } from '../lib/campaignStorage'
 import { withFacadeAddress, type ClaimPackage } from '../lib/claimPackage'
-import { getLogsChunked } from '../lib/getLogsChunked'
 
 export type EmployerCampaign = {
   runId: bigint
@@ -13,9 +12,8 @@ export type EmployerCampaign = {
   startTime: number
   expiration: number
   hasExpired: boolean
-  // Whether at least one pToken transfer has ever landed on the facade — a real on-chain
-  // signal (Transfer.to), unlike "funded" itself which would require decrypting an encrypted
-  // balance we have no key for.
+  // True once COTI has credited the pool (iter08 public marker). Matches employee claim
+  // gating on poolCreditedTotal — not a Transfer-log scan (that hammered Fuji's public RPC).
   hasReceivedFunds: boolean
   // Only populated if this campaign was created in this same browser (see campaignStorage.ts)
   // — nothing on-chain stores the roster, so an older/other-device campaign has none.
@@ -34,6 +32,7 @@ export function useEmployerCampaigns() {
   return useQuery({
     queryKey: ['employer-campaigns', avaxContracts.payrollVault.address, address],
     enabled: !!publicClient && !!address,
+    staleTime: 30_000,
     queryFn: async (): Promise<EmployerCampaign[]> => {
       if (!publicClient || !address) return []
       const { payrollVault, payrollCampaignFacade } = avaxContracts
@@ -66,23 +65,18 @@ export function useEmployerCampaigns() {
               functionName: 'campaignName',
             }),
             publicClient.readContract({ address: facade, abi: payrollCampaignFacade.abi, functionName: 'hasExpired' }),
+            publicClient.readContract({
+              address: facade,
+              abi: payrollCampaignFacade.abi,
+              functionName: 'poolCreditedTotal',
+            }),
           ]),
         ),
       )
 
-      // One scan for every facade at once — pToken is a single shared contract across all
-      // campaigns, and Transfer.to is indexed, so this is cheap regardless of campaign count.
-      const transferLogs = await getLogsChunked({
-        address: avaxContracts.pToken.address,
-        event: getAbiItem({ abi: avaxContracts.pToken.abi, name: 'Transfer' }),
-      })
-      const fundedFacades = new Set(
-        transferLogs.map((log) => (log as unknown as { args: { to: Hex } }).args.to.toLowerCase()),
-      )
-
       const campaigns: EmployerCampaign[] = []
       runs.forEach(({ runId, facade, startTime, expiration }, i) => {
-        const [admin, campaignName, hasExpired] = details[i]
+        const [admin, campaignName, hasExpired, poolCreditedTotal] = details[i]
         if (admin.toLowerCase() !== address.toLowerCase()) return
         campaigns.push({
           runId,
@@ -91,7 +85,7 @@ export function useEmployerCampaigns() {
           startTime,
           expiration,
           hasExpired,
-          hasReceivedFunds: fundedFacades.has(facade.toLowerCase()),
+          hasReceivedFunds: poolCreditedTotal > 0n,
           packages: (loadCampaign(facade)?.packages ?? []).map((pkg) => withFacadeAddress(pkg, facade)),
         })
       })

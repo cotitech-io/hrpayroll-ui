@@ -11,7 +11,7 @@ interface ThemeProviderProps {
 export const ThemeProvider = ({ children }: ThemeProviderProps) => (
   <NextThemesProvider
     attribute="class"
-    defaultTheme="dark"
+    defaultTheme="light"
     enableSystem
     storageKey="coti-payroll-theme"
   >

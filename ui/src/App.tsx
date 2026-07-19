@@ -13,7 +13,7 @@ function App() {
       {/* coti-wallet-plugin's own chain configs include Fuji (CHAIN_CONFIGS), but it
           doesn't export a top-level `avalancheFuji` Chain object like it does for
           `sepolia` — using viem's own definition for the initialChain prop instead. */}
-      <WagmiRainbowKitProvider appName="COTI Payroll" initialChain={avalancheFuji} useEip6963MetaMask>
+      <WagmiRainbowKitProvider appName="PodPay" initialChain={avalancheFuji} useEip6963MetaMask>
         <PrivacyBridgeProvider>
           {/* Only blocks when a wallet is connected AND on the wrong chain — read-only
               browsing while disconnected (or before switching) is unaffected. */}
@@ -23,7 +23,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<ActivityPage />} />
                   <Route path="/employee" element={<EmployeePage />} />
-                  <Route path="/employer" element={<EmployerPage />} />
+                  <Route path="/employer/*" element={<EmployerPage />} />
                 </Routes>
               </Layout>
             </BrowserRouter>
