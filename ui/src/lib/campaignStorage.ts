@@ -11,7 +11,8 @@ export type StoredCampaign = {
   facadeAddress: Hex
   campaignName: string
   runId: string
-  packages: ClaimPackage[]
+  // Older entries may omit facadeAddress on each package; callers should run withFacadeAddress.
+  packages: Array<Omit<ClaimPackage, 'facadeAddress'> & { facadeAddress?: Hex }>
 }
 
 const STORAGE_KEY = 'payroll-campaigns-v1'

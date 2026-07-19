@@ -27,10 +27,10 @@ export const avaxContracts = {
     abi: PayrollCampaignFactoryAbi,
   },
   payrollCampaignFacade: {
-    // The deployment's reference campaign (runId 1, pMTT). Factory-created campaigns each
-    // get their own facade; the employee claim flow currently only targets this one because
-    // claim packages don't carry a facade address (see claimPackage.ts).
-    address: "0x127A179E4E69125c3dc46c7a8fc46BC0D8403E9C",
+    // ABI host + latest known campaign facade (runId 7, pMTT). Employee claims resolve the
+    // target facade from the claim package's facadeAddress — this address is not the only
+    // campaign the UI can talk to. Activity scans every vault-linked facade.
+    address: "0x6FAC6cC6A874213F21B8352E341D7B4B60421773",
     abi: PayrollCampaignFacadeAbi,
   },
   payrollClaimStore: {

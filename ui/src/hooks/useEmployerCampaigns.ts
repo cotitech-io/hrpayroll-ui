@@ -3,8 +3,8 @@ import { useAccount, usePublicClient } from 'wagmi'
 import { getAbiItem, zeroAddress, type Hex } from 'viem'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
 import { loadCampaign } from '../lib/campaignStorage'
+import { withFacadeAddress, type ClaimPackage } from '../lib/claimPackage'
 import { getLogsChunked } from '../lib/getLogsChunked'
-import type { ClaimPackage } from '../lib/claimPackage'
 
 export type EmployerCampaign = {
   runId: bigint
@@ -92,7 +92,7 @@ export function useEmployerCampaigns() {
           expiration,
           hasExpired,
           hasReceivedFunds: fundedFacades.has(facade.toLowerCase()),
-          packages: loadCampaign(facade)?.packages ?? [],
+          packages: (loadCampaign(facade)?.packages ?? []).map((pkg) => withFacadeAddress(pkg, facade)),
         })
       })
 

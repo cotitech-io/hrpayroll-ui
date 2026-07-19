@@ -60,11 +60,12 @@ export function EmployeePage() {
   const claim = useClaimFlow()
 
   const { data: alreadyClaimed } = useReadContract({
-    ...avaxContracts.payrollCampaignFacade,
+    address: pkg?.facadeAddress,
+    abi: avaxContracts.payrollCampaignFacade.abi,
     functionName: 'hasClaimed',
     args: pkg ? [BigInt(pkg.index)] : undefined,
     chainId: AVAX_CHAIN_ID,
-    query: { enabled: !!pkg },
+    query: { enabled: !!pkg?.facadeAddress },
   })
 
   function handlePkgChange(text: string) {
@@ -111,7 +112,7 @@ export function EmployeePage() {
           style={{ width: '100%', fontFamily: 'monospace' }}
           value={pkgText}
           onChange={(e) => handlePkgChange(e.target.value)}
-          placeholder='{"index":0,"recipient":"0x...","amount":"2500","amountCommitment":"0x...","proof":["0x...",...]}'
+          placeholder='{"facadeAddress":"0x...","index":0,"recipient":"0x...","amount":"2500","amountCommitment":"0x...","proof":["0x...",...]}'
         />
       </label>
       {parseError && <p style={{ color: 'crimson' }}>{parseError}</p>}
@@ -119,6 +120,8 @@ export function EmployeePage() {
       {pkg && (
         <div style={{ marginTop: '1rem' }}>
           <dl>
+            <dt>Campaign facade</dt>
+            <dd>{pkg.facadeAddress}</dd>
             <dt>Index</dt>
             <dd>{pkg.index}</dd>
             <dt>Recipient</dt>

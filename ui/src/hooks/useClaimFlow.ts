@@ -27,7 +27,9 @@ export function useClaimFlow() {
       if (!sessionAesKey) throw new Error('Unlock private access first.')
       if (!publicClient) throw new Error('No Avalanche Fuji client available.')
 
-      const { payrollCampaignFacade, payrollClaimStore } = avaxContracts
+      if (!pkg.facadeAddress) throw new Error('Claim package is missing facadeAddress.')
+      const { payrollClaimStore, payrollCampaignFacade } = avaxContracts
+      const facade = { address: pkg.facadeAddress, abi: payrollCampaignFacade.abi } as const
       const amount = BigInt(pkg.amount)
       const to = payoutTo && payoutTo.toLowerCase() !== pkg.recipient.toLowerCase() ? payoutTo : undefined
 
@@ -40,7 +42,7 @@ export function useClaimFlow() {
       const claimIt = await buildClaimIt({
         amount,
         ...signerParams,
-        facadeAddress: payrollCampaignFacade.address,
+        facadeAddress: facade.address,
         selector: to ? CLAIM_TO_SELECTOR : CLAIM_SELECTOR,
       })
 
@@ -52,26 +54,26 @@ export function useClaimFlow() {
       const submitHash = await writeContractAsync({
         ...payrollClaimStore,
         functionName: 'submitPayload',
-        args: [payrollCampaignFacade.address, BigInt(pkg.index), verifyIt, proofHandle, payoutIt],
+        args: [facade.address, BigInt(pkg.index), verifyIt, proofHandle, payoutIt],
         chainId: AVAX_CHAIN_ID,
       })
       await publicClient.waitForTransactionReceipt({ hash: submitHash })
 
       const minFeeWei = await publicClient.readContract({
-        ...payrollCampaignFacade,
+        ...facade,
         functionName: 'calculateMinFeeWei',
       })
 
       const claimHash = to
         ? await writeContractAsync({
-            ...payrollCampaignFacade,
+            ...facade,
             functionName: 'claimTo',
             args: [BigInt(pkg.index), to, claimIt, pkg.proof],
             value: minFeeWei,
             chainId: AVAX_CHAIN_ID,
           })
         : await writeContractAsync({
-            ...payrollCampaignFacade,
+            ...facade,
             functionName: 'claim',
             args: [BigInt(pkg.index), pkg.recipient, claimIt, pkg.proof],
             value: minFeeWei,
@@ -86,7 +88,7 @@ export function useClaimFlow() {
       const deadline = Date.now() + POLL_TIMEOUT_MS
       while (Date.now() < deadline) {
         const claimed = await publicClient.readContract({
-          ...payrollCampaignFacade,
+          ...facade,
           functionName: 'hasClaimed',
           args: [BigInt(pkg.index)],
         })

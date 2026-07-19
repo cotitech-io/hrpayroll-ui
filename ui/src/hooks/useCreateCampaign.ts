@@ -195,7 +195,7 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
         facadeAddress,
         campaignName: params.campaignName,
         runId: runId.toString(),
-        packages: tree.packages.map(toClaimPackage),
+        packages: tree.packages.map((pkg) => toClaimPackage(pkg, facadeAddress)),
       })
       log('done', { facadeAddress, runId: runId.toString() })
 

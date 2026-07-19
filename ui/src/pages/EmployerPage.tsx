@@ -8,7 +8,7 @@ import { cotiTestnetContracts, COTI_TESTNET_CHAIN_ID } from '../config/contracts
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
 import { useEmployerCampaigns, type EmployerCampaign } from '../hooks/useEmployerCampaigns'
 import { useFundCampaign } from '../hooks/useFundCampaign'
-import { downloadClaimPackage, toClaimPackage } from '../lib/claimPackage'
+import { downloadClaimPackage, toClaimPackage, withFacadeAddress } from '../lib/claimPackage'
 import type { RosterEntry } from '../lib/merkle'
 
 // pMTT uses 18 decimals — see EmployeePage's pToken balance comment.
@@ -170,7 +170,9 @@ function PreviousCampaigns() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => downloadClaimPackage(pkg, exportingFor.campaignName)}
+                    onClick={() =>
+                      downloadClaimPackage(withFacadeAddress(pkg, exportingFor.facadeAddress), exportingFor.campaignName)
+                    }
                   >
                     Download
                   </Button>
@@ -455,7 +457,9 @@ export function EmployerPage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => downloadClaimPackage(toClaimPackage(pkg), campaignName)}
+                      onClick={() =>
+                        downloadClaimPackage(toClaimPackage(pkg, result.facadeAddress), campaignName)
+                      }
                     >
                       Download
                     </Button>
