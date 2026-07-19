@@ -245,6 +245,71 @@ matching the pod encrypted-transfer flow — both still dead-end at the missing 
 
 ---
 
+## Diagnostics — alternatives organized
+
+Use this when `ackPoolCredit` fails (~28k gas) or you need to re-prove *why*. Prefer
+cheap, no-key probes first; only spend gas / MTT after the layer is isolated.
+
+```mermaid
+flowchart TD
+  S[ackPoolCredit fails] --> D1[D1 eth_getCode 0x64]
+  D1 -->|empty| Root[Root: no MPC precompile on Fuji]
+  D1 -->|has code| D2[D2 garbage IT eth_call]
+  D2 -->|still reverts| Other[Not missing-precompile - dig IT/signer]
+  D2 -->|would need real IT| D3[D3 state-override eth_call]
+  Root --> D3
+  D3 -->|override succeeds| Confirmed[Confirmed: only 0x64 absence]
+  Confirmed --> D4{Need full path?}
+  D4 -->|yes CI/demo| D5[D5 sim or Fuji fork setCode]
+  D4 -->|yes live spend| D6[D6 fundCampaign.test.ts]
+  D4 -->|compare design| D7[D7 coti-sdk-pod vs facade]
+```
+
+### Decision guide
+
+| If you want to know… | Run | Cost | Verdict it can give |
+|----------------------|-----|------|---------------------|
+| Is Fuji missing the MPC precompile? | **D1** | Free RPC | Empty code ⇒ every local `MpcCore` call is doomed |
+| Does failure depend on AES / IT quality? | **D2** then **D3** | Free | Garbage IT + override success ⇒ not a wrong-`.env`-key bug |
+| Does the *full* fund path still die at ack? | **D6** | MTT + gas | Mint/transfer OK, ack fails — two-ledger split |
+| Can the *same contracts* pass with 0x64 present? | **D5** | Local / CI | simCOTI or Anvil `setCode` — design OK when precompile exists |
+| Is the facade violating the official PoD pattern? | **D7** | Read-only | Local `ValidateCiphertext` on Fuji vs inbox + encryption service |
+
+### Alternative analysis
+
+| ID | Diagnostic | What it does | Pros | Cons / traps | When to use |
+|----|------------|--------------|------|--------------|-------------|
+| **D1** | `eth_getCode(0x…64)` on Fuji (and optionally COTI) | Checks whether `MPC_PRECOMPILE` exists | Instant; no keys; chain-level fact | Empty code proves *call site* cannot work; does not explain IT format bugs if code *were* present | **Always first** on any new Fuji RPC / redeploy rumor |
+| **D2** | `eth_call` `ackPoolCredit` with **garbage** IT | Proves revert happens before ciphertext checks | Separates “bad IT” from “no precompile” | Alone looks like “IT invalid”; pair with D3 | After D1 empty, or if someone claims wrong AES |
+| **D3** | Same `eth_call` + **state override** planting mock code at `0x64` | Only variable is code at precompile | Strong causal proof; no tx; see [How to verify](#how-to-verify) | Override is not a live fix; mock code is not real MPC | Confirm root cause after D1/D2; share with reviewers |
+| **D4** | Compare `gasUsed` on reverted ack txs (~28k vs millions) | Cheap fingerprint of extcodesize abort | Easy from explorer / receipts | Not unique (other early reverts can be small); use as hint | Quick scan of past failed acks (e.g. `0x63d21cd3…`) |
+| **D5a** | `sablier-payroll-pod` sim E2E (`fundCampaignOnFacade`) | Full fund+ack+claim with injected 0x64 + dual key registry | Proves contract/IT wiring when precompile exists | Does **not** prove live Fuji; dual-sim registration can mask live gaps | Regression after facade/IT changes |
+| **D5b** | Anvil/Hardhat **fork Fuji** + `setCode(0x64, …)` | Live bytecode + fake precompile | Closest to production addresses without waiting for platform | Still not real MPC privacy; need a realistic `SimExtendedOperations` | CI gate for “would ack work if 0x64 answered” |
+| **D6** | `npm run test:testnet -- tests/testnet/fundCampaign.test.ts` | Portal mint → public transfer → ack with `.env` AES | End-to-end against real networks; documents current status | Spends MTT/gas; ack expected red today; easy to misread as “wrong AES” | Periodic live health; after fee/transfer fixes |
+| **D7** | Diff facade vs `coti-sdk-pod` `pod-method-call.ts` | Design diagnostic: local `MpcCore` vs inbox + encryption service | Explains *why* pToken works and facade cannot | No on-chain proof by itself | Architecture / redesign discussions (fix option 1) |
+| **D8** | Retry ack with alternate AES / funder vs employer | Negative control | Rules out wrong-signer / wrong-key hypotheses | **Wastes gas**; already falsified (`.env` key + garbage IT both die the same way) | Avoid unless D1–D3 were never run |
+| **D9** | Fuji `generateOrRecoverAes` / AccountOnboard | Attempts client-chain onboard | Historically led to “unable to onboard user” | Misleading as root cause — symptom of no MPC stack on Fuji, not a missing pin in `.env` | Do not treat as the primary fix path (see fix option 5) |
+
+### Recommended diagnostic sequence
+
+1. **D1** — empty `0x64` on Fuji? If yes, stop blaming AES/IT shape.
+2. **D2 + D3** — garbage IT reverts; override succeeds → write up as precompile absence.
+3. **D7** — confirm product direction (inbox/COTI MPC vs local facade MPC).
+4. **D5** — keep sim (or fork) green so payroll logic does not regress while live is blocked.
+5. **D6** — optional live smoke; expect fail at step 5 until fix option 1/2 ships.
+
+### Hypotheses ruled out (do not re-diagnose unless D1 flips)
+
+| Hypothesis | Why ruled out |
+|------------|----------------|
+| Wrong `PRIVATE_AES_KEY_TESTNET` | Same key validates on COTI; garbage IT fails identically on Fuji |
+| Wrong `ackPoolCredit` selector / IT ABI | Matches pod; override makes call succeed without changing IT |
+| Employer vs funder signer | Admin IT still hits empty 0x64 |
+| Insufficient `FUJI_MPC_IT_GAS` | ~28k used ≪ 3M limit; early revert, not OOG |
+| Need Fuji AccountOnboard for this key | No registry can live at 0x64 without a precompile; SDK never intended local MPC on Fuji |
+
+---
+
 ## Code map
 
 | Concern | File |
