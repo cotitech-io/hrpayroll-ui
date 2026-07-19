@@ -256,6 +256,19 @@ export const PayrollCampaignFacadeAbi = [
   },
   {
     "inputs": [],
+    "name": "DEPLOYER",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "EXPIRATION",
     "outputs": [
       {

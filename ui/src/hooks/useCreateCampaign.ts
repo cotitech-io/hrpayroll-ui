@@ -2,7 +2,6 @@ import { useMutation } from '@tanstack/react-query'
 import { parseEventLogs, type Hex } from 'viem'
 import {
   useAccount,
-  useDeployContract,
   usePublicClient,
   useSignMessage,
   useSwitchChain,
@@ -10,12 +9,11 @@ import {
 } from 'wagmi'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { AVAX_CHAIN_ID, COTI_TESTNET_CHAIN_ID, avaxContracts, cotiTestnetContracts } from '../config/contracts'
-import { PayrollCampaignFacadeBytecode } from '../abis/PayrollCampaignFacadeBytecode'
 import { buildRegisterLeafIt } from '../lib/buildPayrollIt'
 import { saveCampaign } from '../lib/campaignStorage'
 import { toClaimPackage } from '../lib/claimPackage'
 import { buildPayrollMerkleTree, type PayrollMerkleTree, type RosterEntry } from '../lib/merkle'
-import { computePTokenTwoWayFees, computePayrollWireFees } from '../lib/podFees'
+import { COTI_REGISTER_LEAF_GAS } from '../lib/podFees'
 
 export type CreateCampaignParams = {
   roster: RosterEntry[]
@@ -33,29 +31,55 @@ export type CreateCampaignResult = {
   tree: PayrollMerkleTree
 }
 
+const LOG_PREFIX = '[useCreateCampaign]'
+
+function log(...args: unknown[]) {
+  console.log(LOG_PREFIX, new Date().toISOString(), ...args)
+}
+
+async function logSwitchChain(
+  switchChainAsync: ReturnType<typeof useSwitchChain>['switchChainAsync'],
+  chainId: number,
+) {
+  const start = Date.now()
+  log('switchChainAsync requested', { chainId })
+  await switchChainAsync({ chainId })
+  log('switchChainAsync resolved', { chainId, elapsedMs: Date.now() - start })
+}
+
 export function useCreateCampaign(onStage?: (stage: string) => void) {
   const { address } = useAccount()
   const { sessionAesKey } = usePrivacyBridgeUnlock()
   const { signMessageAsync } = useSignMessage()
   const { writeContractAsync } = useWriteContract()
-  const { deployContractAsync } = useDeployContract()
   const { switchChainAsync } = useSwitchChain()
   const fujiClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
   const cotiClient = usePublicClient({ chainId: COTI_TESTNET_CHAIN_ID })
 
   return useMutation({
     mutationFn: async (params: CreateCampaignParams): Promise<CreateCampaignResult> => {
-      const stage = (s: string) => onStage?.(s)
+      const stage = (s: string) => {
+        log('stage:', s)
+        onStage?.(s)
+      }
+
+      log('starting', { campaignName: params.campaignName, rosterSize: params.roster.length })
 
       if (!address) throw new Error('Connect a wallet first.')
       if (!sessionAesKey) throw new Error('Unlock private access first.')
       if (!fujiClient || !cotiClient) throw new Error('Missing chain clients.')
       if (params.roster.length === 0) throw new Error('Add at least one roster entry.')
 
+      // The Fuji-side factory is permissionless, but the COTI-side registerRun/registerLeaf
+      // below are still onlyOwner on PrivatePayrollCoti — gate up front on that owner so we
+      // don't create an on-chain campaign whose roster we then can't register.
       stage('Checking campaign owner…')
-      const vaultOwner = await fujiClient.readContract({ ...avaxContracts.payrollVault, functionName: 'owner' })
-      if (vaultOwner.toLowerCase() !== address.toLowerCase()) {
-        throw new Error(`Only the payroll vault owner (${vaultOwner}) can create campaigns.`)
+      const cotiOwner = await cotiClient.readContract({
+        ...cotiTestnetContracts.privatePayrollCoti,
+        functionName: 'owner',
+      })
+      if (cotiOwner.toLowerCase() !== address.toLowerCase()) {
+        throw new Error(`Only the PrivatePayrollCoti owner (${cotiOwner}) can create campaigns.`)
       }
 
       stage('Building merkle tree…')
@@ -66,13 +90,14 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
       const expiration = params.expiration ?? 0
       const minFeeUSD = params.minFeeUSD ?? 0n
 
-      stage('Deploying campaign facade…')
-      const deployHash = await deployContractAsync({
-        abi: avaxContracts.payrollCampaignFacade.abi,
-        bytecode: PayrollCampaignFacadeBytecode,
+      // One tx replaces the old facade-deploy + vault.createRun + facade.wirePayroll
+      // sequence — the factory does all three, using the wire fees stored on it at deploy.
+      stage('Creating campaign via factory…')
+      const createHash = await writeContractAsync({
+        ...avaxContracts.payrollCampaignFactory,
+        functionName: 'createCampaign',
         args: [
           address,
-          avaxContracts.comptroller.address,
           tree.root,
           avaxContracts.pToken.address,
           campaignStartTime,
@@ -82,47 +107,19 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
         ],
         chainId: AVAX_CHAIN_ID,
       })
-      const deployReceipt = await fujiClient.waitForTransactionReceipt({ hash: deployHash })
-      const facadeAddress = deployReceipt.contractAddress
-      if (!facadeAddress) throw new Error('Facade deployment did not return a contract address.')
-
-      stage('Creating payroll run…')
-      const createRunHash = await writeContractAsync({
-        ...avaxContracts.payrollVault,
-        functionName: 'createRun',
-        args: [tree.root, avaxContracts.pToken.address, facadeAddress, campaignStartTime, expiration],
-        chainId: AVAX_CHAIN_ID,
+      log('createCampaign tx submitted', { createHash })
+      const createReceipt = await fujiClient.waitForTransactionReceipt({ hash: createHash })
+      log('createCampaign tx mined', { status: createReceipt.status })
+      if (createReceipt.status !== 'success') throw new Error(`createCampaign reverted (tx ${createHash}).`)
+      const [campaignCreated] = parseEventLogs({
+        abi: avaxContracts.payrollCampaignFactory.abi,
+        eventName: 'CampaignCreated',
+        logs: createReceipt.logs,
       })
-      const createRunReceipt = await fujiClient.waitForTransactionReceipt({ hash: createRunHash })
-      const [runCreated] = parseEventLogs({
-        abi: avaxContracts.payrollVault.abi,
-        eventName: 'RunCreated',
-        logs: createRunReceipt.logs,
-      })
-      if (!runCreated) throw new Error('RunCreated event not found in the createRun receipt.')
-      const runId = runCreated.args.runId
-
-      stage('Computing inbox fees…')
-      const { callbackFeeWei, inboxFeeWei } = await computePayrollWireFees(fujiClient)
-      const { pTokenTransferFeeWei, pTokenCallbackFeeWei } = await computePTokenTwoWayFees(fujiClient)
-
-      stage('Wiring payroll…')
-      const wireHash = await writeContractAsync({
-        address: facadeAddress,
-        abi: avaxContracts.payrollCampaignFacade.abi,
-        functionName: 'wirePayroll',
-        args: [
-          avaxContracts.payrollVault.address,
-          avaxContracts.payrollClaimStore.address,
-          runId,
-          callbackFeeWei,
-          inboxFeeWei,
-          pTokenTransferFeeWei,
-          pTokenCallbackFeeWei,
-        ],
-        chainId: AVAX_CHAIN_ID,
-      })
-      await fujiClient.waitForTransactionReceipt({ hash: wireHash })
+      if (!campaignCreated) throw new Error('CampaignCreated event not found in the createCampaign receipt.')
+      const facadeAddress = campaignCreated.args.facade
+      const runId = campaignCreated.args.runId
+      log('campaign created', { facadeAddress, runId: runId.toString() })
 
       // registerRun/registerLeaf validate against the roster on COTI itself — the wallet
       // must submit transactions there, which the NetworkGuard (hardcoded to Fuji as the
@@ -132,17 +129,20 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
       // silently drift back to the previously-active chain between prompts (e.g. after a
       // signMessageAsync round trip), and switchChainAsync is a no-op if already on target.
       stage('Switching to COTI testnet…')
-      await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
+      await logSwitchChain(switchChainAsync, COTI_TESTNET_CHAIN_ID)
 
       stage('Registering run on COTI…')
-      await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
+      await logSwitchChain(switchChainAsync, COTI_TESTNET_CHAIN_ID)
       const registerRunHash = await writeContractAsync({
         ...cotiTestnetContracts.privatePayrollCoti,
         functionName: 'registerRun',
         args: [runId, tree.root],
         chainId: COTI_TESTNET_CHAIN_ID,
       })
-      await cotiClient.waitForTransactionReceipt({ hash: registerRunHash })
+      log('registerRun tx submitted', { registerRunHash })
+      const registerRunReceipt = await cotiClient.waitForTransactionReceipt({ hash: registerRunHash })
+      log('registerRun tx mined', { status: registerRunReceipt.status })
+      if (registerRunReceipt.status !== 'success') throw new Error(`registerRun reverted (tx ${registerRunHash}).`)
 
       for (const pkg of tree.packages) {
         stage(`Registering leaf ${pkg.index + 1}/${tree.packages.length} on COTI…`)
@@ -152,22 +152,28 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
           signerAddress: address,
           signMessageAsync,
         })
-        await switchChainAsync({ chainId: COTI_TESTNET_CHAIN_ID })
+        await logSwitchChain(switchChainAsync, COTI_TESTNET_CHAIN_ID)
         const registerLeafHash = await writeContractAsync({
           ...cotiTestnetContracts.privatePayrollCoti,
           functionName: 'registerLeaf',
           args: [runId, BigInt(pkg.index), pkg.recipient, pkg.amountCommitment, itAmount],
           chainId: COTI_TESTNET_CHAIN_ID,
+          gas: COTI_REGISTER_LEAF_GAS,
         })
-        await cotiClient.waitForTransactionReceipt({ hash: registerLeafHash })
+        log('registerLeaf (COTI) tx submitted', { index: pkg.index, registerLeafHash })
+        const registerLeafReceipt = await cotiClient.waitForTransactionReceipt({ hash: registerLeafHash })
+        log('registerLeaf (COTI) tx mined', { index: pkg.index, status: registerLeafReceipt.status })
+        if (registerLeafReceipt.status !== 'success') {
+          throw new Error(`registerLeaf on COTI reverted for index ${pkg.index} (tx ${registerLeafHash}).`)
+        }
       }
 
       stage('Switching back to Avalanche Fuji…')
-      await switchChainAsync({ chainId: AVAX_CHAIN_ID })
+      await logSwitchChain(switchChainAsync, AVAX_CHAIN_ID)
 
       for (const pkg of tree.packages) {
         stage(`Registering leaf ${pkg.index + 1}/${tree.packages.length} on facade…`)
-        await switchChainAsync({ chainId: AVAX_CHAIN_ID })
+        await logSwitchChain(switchChainAsync, AVAX_CHAIN_ID)
         const registerFacadeHash = await writeContractAsync({
           address: facadeAddress,
           abi: avaxContracts.payrollCampaignFacade.abi,
@@ -175,7 +181,12 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
           args: [BigInt(pkg.index), pkg.recipient, pkg.amountCommitment],
           chainId: AVAX_CHAIN_ID,
         })
-        await fujiClient.waitForTransactionReceipt({ hash: registerFacadeHash })
+        log('registerLeaf (facade) tx submitted', { index: pkg.index, registerFacadeHash })
+        const registerFacadeReceipt = await fujiClient.waitForTransactionReceipt({ hash: registerFacadeHash })
+        log('registerLeaf (facade) tx mined', { index: pkg.index, status: registerFacadeReceipt.status })
+        if (registerFacadeReceipt.status !== 'success') {
+          throw new Error(`registerLeaf on facade reverted for index ${pkg.index} (tx ${registerFacadeHash}).`)
+        }
       }
 
       // Persisted locally because nothing on-chain stores the roster/amounts — without this,
@@ -186,8 +197,12 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
         runId: runId.toString(),
         packages: tree.packages.map(toClaimPackage),
       })
+      log('done', { facadeAddress, runId: runId.toString() })
 
       return { facadeAddress, runId, tree }
+    },
+    onError: (error) => {
+      log('mutation failed', error instanceof Error ? error.message : error)
     },
   })
 }

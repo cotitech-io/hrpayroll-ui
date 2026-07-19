@@ -5,11 +5,14 @@ export function Modal({
   onClose,
   title,
   children,
+  dismissable = true,
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
+  /** When false, the backdrop and × are inert — used while a process must run to completion. */
+  dismissable?: boolean
 }) {
   if (!open) return null
 
@@ -28,7 +31,7 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onClose}
+      onClick={dismissable ? onClose : undefined}
     >
       <div
         className="bg-card border border-border rounded-lg"
@@ -37,14 +40,16 @@ export function Modal({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', lineHeight: 1 }}
-          >
-            ×
-          </button>
+          {dismissable && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', lineHeight: 1 }}
+            >
+              ×
+            </button>
+          )}
         </div>
         {children}
       </div>

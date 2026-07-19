@@ -4,7 +4,7 @@ import { useAccount, useReadContract } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { Button } from '../components/ui/button'
 import { Modal } from '../components/ui/modal'
-import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
+import { cotiTestnetContracts, COTI_TESTNET_CHAIN_ID } from '../config/contracts'
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
 import { useEmployerCampaigns, type EmployerCampaign } from '../hooks/useEmployerCampaigns'
 import { useFundCampaign } from '../hooks/useFundCampaign'
@@ -184,19 +184,22 @@ function PreviousCampaigns() {
   )
 }
 
-function VaultOwnerCheck() {
+// Campaign creation on Fuji is permissionless via the factory, but registering the roster on
+// COTI (registerRun/registerLeaf) is still onlyOwner on PrivatePayrollCoti — that owner is the
+// effective gate now, not the vault owner.
+function CampaignOwnerCheck() {
   const { address } = useAccount()
   const { data: owner } = useReadContract({
-    ...avaxContracts.payrollVault,
+    ...cotiTestnetContracts.privatePayrollCoti,
     functionName: 'owner',
-    chainId: AVAX_CHAIN_ID,
+    chainId: COTI_TESTNET_CHAIN_ID,
   })
   if (!owner || !address) return null
   if (owner.toLowerCase() === address.toLowerCase()) return null
   return (
     <p style={{ color: 'crimson' }}>
-      Connected wallet is not the payroll vault owner ({owner}). Campaign creation will revert until you
-      connect that wallet.
+      Connected wallet is not the PrivatePayrollCoti owner ({owner}). Campaign creation will fail at the
+      COTI roster-registration step until you connect that wallet.
     </p>
   )
 }
@@ -210,11 +213,13 @@ export function EmployerPage() {
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false)
   const [campaignName, setCampaignName] = useState('Q1 Payroll')
   const [fundAmount, setFundAmount] = useState('')
-  const [stage, setStage] = useState<string | null>(null)
+  const [fundStage, setFundStage] = useState<string | null>(null)
   const [result, setResult] = useState<CreateCampaignResult | null>(null)
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false)
+  const [deployStages, setDeployStages] = useState<string[]>([])
 
-  const createCampaign = useCreateCampaign(setStage)
-  const fundCampaign = useFundCampaign(setStage)
+  const createCampaign = useCreateCampaign((s) => setDeployStages((prev) => [...prev, s]))
+  const fundCampaign = useFundCampaign(setFundStage)
 
   function updateRow(i: number, field: keyof RosterRow, value: string) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)))
@@ -246,7 +251,7 @@ export function EmployerPage() {
 
   return (
     <div>
-      <VaultOwnerCheck />
+      <CampaignOwnerCheck />
 
       <PreviousCampaigns />
 
@@ -323,12 +328,14 @@ export function EmployerPage() {
                 <Button
                   type="button"
                   disabled={!isUnlocked || roster.length === 0 || createCampaign.isPending}
-                  onClick={() =>
+                  onClick={() => {
+                    setDeployStages([])
+                    setIsDeployModalOpen(true)
                     createCampaign.mutate(
                       { roster, campaignName },
                       { onSuccess: (data) => setResult(data) },
                     )
-                  }
+                  }}
                 >
                   {createCampaign.isPending ? 'Deploying…' : 'Deploy Payroll'}
                 </Button>
@@ -356,8 +363,34 @@ export function EmployerPage() {
             </Button>
           </Modal>
 
-          {createCampaign.isPending && stage && <p style={{ opacity: 0.7 }}>{stage}</p>}
-          {createCampaign.error && <p style={{ color: 'crimson' }}>{(createCampaign.error as Error).message}</p>}
+          <Modal
+            open={isDeployModalOpen}
+            onClose={() => setIsDeployModalOpen(false)}
+            title="Deploying Payroll"
+          >
+            {/* Always dismissable — closing this view doesn't cancel the mutation, which
+                keeps running in the background either way. Locking it to "done only" trapped
+                the user with no way out if a step ever hung (e.g. an unanswered wallet network
+                switch prompt), since isPending would then never turn false. */}
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {deployStages.map((s, i) => (
+                <li
+                  key={i}
+                  style={{ opacity: i === deployStages.length - 1 && createCampaign.isPending ? 1 : 0.6 }}
+                >
+                  {i === deployStages.length - 1 && createCampaign.isPending ? '⏳' : '✓'} {s}
+                </li>
+              ))}
+            </ul>
+            {createCampaign.error && (
+              <p style={{ color: 'crimson', marginTop: '0.75rem' }}>{(createCampaign.error as Error).message}</p>
+            )}
+            {!createCampaign.isPending && (
+              <Button type="button" className="mt-4" onClick={() => setIsDeployModalOpen(false)}>
+                Close
+              </Button>
+            )}
+          </Modal>
         </>
       )}
 
@@ -397,7 +430,7 @@ export function EmployerPage() {
           >
             {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
           </Button>
-          {fundCampaign.isPending && stage && <p style={{ opacity: 0.7 }}>{stage}</p>}
+          {fundCampaign.isPending && fundStage && <p style={{ opacity: 0.7 }}>{fundStage}</p>}
           {fundCampaign.error && <p style={{ color: 'crimson' }}>{(fundCampaign.error as Error).message}</p>}
           {fundCampaign.isSuccess && <p style={{ color: 'green' }}>Facade funded.</p>}
 

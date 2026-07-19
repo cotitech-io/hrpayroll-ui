@@ -221,6 +221,19 @@ export const PayrollVaultAbi = [
     "type": "event"
   },
   {
+    "inputs": [],
+    "name": "campaignFactory",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -569,6 +582,19 @@ export const PayrollVaultAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "campaignFactory_",
+        "type": "address"
+      }
+    ],
+    "name": "setCampaignFactory",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
