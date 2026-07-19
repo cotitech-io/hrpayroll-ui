@@ -3,11 +3,11 @@ import { getAbiItem, type Hex } from 'viem'
 import { useAccount, usePublicClient, useSendTransaction, useSignMessage, useWriteContract } from 'wagmi'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
-import { buildAckPoolIt, buildTransferIt } from '../lib/buildPayrollIt'
-import { computePTokenTwoWayFees } from '../lib/podFees'
+import { buildAckPoolIt } from '../lib/buildPayrollIt'
+import { computePTokenTwoWayFees, FUJI_MPC_IT_GAS } from '../lib/podFees'
 
 const POLL_INTERVAL_MS = 3_000
-const POLL_TIMEOUT_MS = 90_000
+const POLL_TIMEOUT_MS = 300_000
 
 export type FundCampaignParams = {
   facadeAddress: Hex
@@ -86,18 +86,15 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         pTokenCallbackFeeWei: pTokenCallbackFeeWei.toString(),
       })
 
-      stage('Sending encrypted pToken transfer…')
-      const transferIt = await buildTransferIt({
-        amount: params.amount,
-        aesKey: sessionAesKey,
-        signerAddress: address,
-        signMessageAsync,
-      })
-      log('transferIt built', { ciphertext: transferIt.ciphertext })
+      // Public-amount overload: encrypted `transfer(to, itUint256, …)` currently leaves the
+      // sender pending forever on Fuji↔COTI testnet (COTI callback never lands). Plain
+      // `transfer(to, uint256, callbackFee)` uses the same settle path as portal mints and
+      // still credits a garbled pToken balance — only the funded amount is public.
+      stage('Sending pToken transfer to facade…')
       const transferHash = await writeContractAsync({
         ...pToken,
         functionName: 'transfer',
-        args: [params.facadeAddress, transferIt, pTokenCallbackFeeWei],
+        args: [params.facadeAddress, params.amount, pTokenCallbackFeeWei],
         value: pTokenTransferFeeWei,
         chainId: AVAX_CHAIN_ID,
       })
@@ -182,6 +179,7 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         abi: avaxContracts.payrollCampaignFacade.abi,
         functionName: 'ackPoolCredit',
         args: [ackIt],
+        gas: FUJI_MPC_IT_GAS,
         chainId: AVAX_CHAIN_ID,
       })
       log('ackPoolCredit tx submitted', { ackHash })

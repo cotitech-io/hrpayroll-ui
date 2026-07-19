@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { concatHex, keccak256, toHex, zeroAddress, type Hex } from 'viem'
 import { avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
-import { buildAckPoolIt, buildTransferIt } from '../../src/lib/buildPayrollIt'
-import { computePTokenTwoWayFees } from '../../src/lib/podFees'
+import { buildAckPoolIt } from '../../src/lib/buildPayrollIt'
+import { computePTokenTwoWayFees, FUJI_MPC_IT_GAS } from '../../src/lib/podFees'
 import type { RosterEntry } from '../../src/lib/merkle'
 import {
   PMTT,
@@ -24,32 +24,23 @@ import {
 // then ackPoolCredit. Budget: 500 of PRIVATE_KEY3's tokens per run, distributed to the
 // two roster accounts below (250 pMTT each).
 //
-// KNOWN BLOCKER (2026-07-19): every IT-based (encrypted-amount) pMTT transfer submitted
-// since ~2026-07-17 13:00 UTC fails on the COTI inbox with ERROR_CODE_ENCODE_FAILED and the
-// same deterministic payload (0xfe709212…), for EVERY recipient type — facade, plain EOA —
-// while plain-amount ops (portal mints) still settle. Each failed transfer permanently
-// bricks its SENDER: the error response is never ferried back to Fuji, ENCODE_FAILED is not
-// retryable via Inbox.retryFailedRequest (that only accepts EXECUTION_FAILED), and
-// PodERC20's pending-transfer lock has no other clearing path, so the account reverts
-// TransferAlreadyPending forever after. Verified casualties: PRIVATE_KEY3 (requestId …67,
-// 5500 pMTT locked), derived funder v1 (…83), derived probe v2 (…85, EOA recipient).
-// This test is correct and will pass as-is once the COTI-side codec/executor is fixed;
-// until then it fails at the transfer-settle step, burning the 500 MTT seed and bricking
-// the current funder — bump PAYROLL_TEST_FUNDER_SALT afterwards to rotate to a clean one.
+// Because PRIVATE_KEY3's own pMTT may be locked from earlier stuck transfers, the seed
+// spends PRIVATE_KEY3's budget from its PUBLIC MTT instead: a PrivacyPortal deposit
+// (plain-amount mint) minting fresh pMTT straight to the funder, which then funds the
+// facade via PodERC20's public `transfer(to, uint256, uint256)` overload. Encrypted
+// `transfer(to, itUint256, …)` currently leaves senders pending forever on Fuji↔COTI
+// testnet (callback never lands), so the fund path matches the mint path: plaintext
+// amount on the wire, private balances still garbled on-chain. ackPoolCredit still uses
+// an employer/funder IT against the facade.
 //
-// Because PRIVATE_KEY3's own pMTT is locked (see above), the seed spends PRIVATE_KEY3's
-// budget from its PUBLIC MTT instead: a PrivacyPortal deposit (plain-amount mint — the
-// path that still works) minting fresh pMTT straight to the funder, which then runs the
-// real fund flow. The funder is a dedicated test account derived deterministically from
-// PRIVATE_KEY3, so its gas top-ups and COTI onboarding are one-time costs per salt. It
-// never holds anything but testnet gas and the in-flight 500 pMTT.
+// If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
-// Requires in the repo-root .env:
+// Requires in the repo-root .env (helpers load ../../../.env — not ui/.env.local):
 //   PRIVATE_KEY3              — employer/admin; PrivatePayrollCoti owner; pays the 500 MTT
 //                               seed and the funder's one-time gas top-ups.
 //   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's COTI AES key.
-//   PAYROLL_TEST_FUNDER_SALT  — optional; rotates the derived funder account (default v3;
-//                               v1 and v2 were bricked reproducing the blocker above).
+//   PAYROLL_TEST_FUNDER_SALT  — optional; rotates the derived funder account (default v4).
+//   PRIVATE_AES_KEY_FUNDER_<SALT>_TESTNET — optional pin for the funder's AES key.
 
 const EMPLOYEE_A = '0xAb81c57CCc578a5636BFF47B896BEC6Af1c30012' as const
 const EMPLOYEE_B = '0xF505c61776e8234Ce45C59D7e28d074D9d023DFe' as const
@@ -63,7 +54,7 @@ const FUNDER_GAS_FUJI = 50_000_000_000_000_000n // 0.05 AVAX
 const FUNDER_GAS_COTI = 1_000_000_000_000_000_000n // 1 COTI (onboarding tx)
 
 const key3 = envPrivateKey('PRIVATE_KEY3')
-const FUNDER_SALT = process.env.PAYROLL_TEST_FUNDER_SALT ?? 'v3'
+const FUNDER_SALT = process.env.PAYROLL_TEST_FUNDER_SALT ?? 'v4'
 const funderKey = key3
   ? (keccak256(concatHex([key3, toHex(`hrpayroll-testnet-funder-${FUNDER_SALT}`)])) as Hex)
   : undefined
@@ -180,6 +171,7 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       from: zeroAddress,
       to: funder.account.address as Hex,
       fromBlock: depositReceipt.blockNumber,
+      timeoutMs: 300_000,
       label: 'portal mint to funder',
     })
     const { balance: funderSeeded, pending: seededPending } = await decryptPMttBalance(
@@ -190,17 +182,12 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     expect(seededPending, 'funder pending after mint settle').toBe(false)
     expect(funderSeeded - funderBefore, 'seeded amount').toBe(FUND_TOTAL)
 
-    // 3. The actual fund flow, exactly as useFundCampaign does it.
-    const transferIt = await buildTransferIt({
-      amount: FUND_TOTAL,
-      aesKey: funderAesKey,
-      signerAddress: funder.account.address as Hex,
-      signMessageAsync: funder.signMessageAsync,
-    })
+    // 3. Fund the facade with the public-amount transfer overload (same settle path as the
+    //    portal mint). Matches useFundCampaign after the IT-transfer testnet outage.
     const transferHash = await funder.fujiWallet.writeContract({
       ...avaxContracts.pToken,
       functionName: 'transfer',
-      args: [campaign.facadeAddress, transferIt, pTokenCallbackFeeWei],
+      args: [campaign.facadeAddress, FUND_TOTAL, pTokenCallbackFeeWei],
       value: pTokenTransferFeeWei,
     })
     const transferReceipt = await fujiPublic.waitForTransactionReceipt({ hash: transferHash })
@@ -212,24 +199,37 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       from: funder.account.address as Hex,
       to: campaign.facadeAddress,
       fromBlock: transferReceipt.blockNumber,
+      timeoutMs: 300_000,
       label: 'fund transfer to facade',
     })
 
+    // ackPoolCredit is signed+submitted by the campaign admin (employer). The IT is
+    // validated on Fuji's MPC precompile with the employer's key — not the ephemeral funder.
     const ackIt = await buildAckPoolIt({
       amount: FUND_TOTAL,
-      aesKey: funderAesKey,
-      signerAddress: funder.account.address as Hex,
+      aesKey: employerAesKey,
+      signerAddress: employer.account.address as Hex,
       facadeAddress: campaign.facadeAddress,
-      signMessageAsync: funder.signMessageAsync,
+      signMessageAsync: employer.signMessageAsync,
     })
-    const ackHash = await funder.fujiWallet.writeContract({
+    // Explicit gas: Fuji eth_estimateGas cannot model MpcCore.validateCiphertext (same
+    // class of call as COTI registerLeaf).
+    const ackHash = await employer.fujiWallet.writeContract({
       address: campaign.facadeAddress,
       abi: avaxContracts.payrollCampaignFacade.abi,
       functionName: 'ackPoolCredit',
       args: [ackIt],
+      gas: FUJI_MPC_IT_GAS,
     })
     const ackReceipt = await fujiPublic.waitForTransactionReceipt({ hash: ackHash })
-    expect(ackReceipt.status, 'ackPoolCredit').toBe('success')
+    expect(
+      ackReceipt.status,
+      `ackPoolCredit reverted (tx ${ackHash}, gasUsed=${ackReceipt.gasUsed}). ` +
+        'Fuji MpcCore.validateCiphertext rejected the employer IT — usually the account is ' +
+        'not onboarded for the Fuji MPC precompile (coti-ethers generateOrRecoverAes on the ' +
+        'Fuji RPC fails with "unable to onboard user"). Portal mint + public pToken transfer ' +
+        'to the facade already settled; only the encrypted pool ledger ack is blocked.',
+    ).toBe('success')
 
     // 4. The funder spent exactly the seeded budget — nothing more, nothing less.
     const { balance: funderAfter, pending: funderAfterPending } = await decryptPMttBalance(

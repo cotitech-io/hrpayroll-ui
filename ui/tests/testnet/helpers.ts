@@ -136,7 +136,7 @@ export async function waitForPTokenSettle(params: {
   timeoutMs?: number
   label: string
 }): Promise<void> {
-  const { fujiPublic, from, to, fromBlock, timeoutMs = 180_000, label } = params
+  const { fujiPublic, from, to, fromBlock, timeoutMs = 300_000, label } = params
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const [ok, failed] = await Promise.all([
@@ -166,6 +166,82 @@ export type CreatedCampaign = {
   tree: PayrollMerkleTree
 }
 
+// COTI testnet regularly drops underpriced / long-pending txs from the public mempool
+// (seen as WaitForTransactionReceiptTimeoutError with getTransaction → not found). Retry
+// with bumped EIP-1559 fees rather than failing the whole create/fund flow. Poll for drop
+// early so we don't burn the full receipt timeout on a vanished tx.
+const COTI_RECEIPT_TIMEOUT_MS = 180_000
+const COTI_DROP_GRACE_MS = 45_000
+const COTI_WRITE_ATTEMPTS = 4
+
+async function waitCotiReceiptOrDrop(signer: TestnetSigner, hash: Hex, label: string): Promise<'mined' | 'dropped'> {
+  const deadline = Date.now() + COTI_RECEIPT_TIMEOUT_MS
+  const dropAfter = Date.now() + COTI_DROP_GRACE_MS
+  while (Date.now() < deadline) {
+    const receipt = await signer.cotiPublic.getTransactionReceipt({ hash }).catch(() => null)
+    if (receipt) {
+      if (receipt.status !== 'success') throw new Error(`${label} reverted (tx ${hash}).`)
+      return 'mined'
+    }
+    const inMempool = await signer.cotiPublic.getTransaction({ hash }).then(
+      () => true,
+      () => false,
+    )
+    if (!inMempool && Date.now() >= dropAfter) return 'dropped'
+    await new Promise((r) => setTimeout(r, 3_000))
+  }
+  const inMempool = await signer.cotiPublic.getTransaction({ hash }).then(
+    () => true,
+    () => false,
+  )
+  if (!inMempool) return 'dropped'
+  throw new Error(`${label} timed out waiting for receipt (tx ${hash} still pending).`)
+}
+
+async function writeCotiContract(params: {
+  signer: TestnetSigner
+  label: string
+  write: (fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }) => Promise<Hex>
+}): Promise<void> {
+  const { signer, label, write } = params
+  let feeMultiplier = 2n
+  let lastError: unknown
+  for (let attempt = 1; attempt <= COTI_WRITE_ATTEMPTS; attempt++) {
+    const fees = await signer.cotiPublic.estimateFeesPerGas()
+    const maxFeePerGas = (fees.maxFeePerGas ?? 1_000_000_000n) * feeMultiplier
+    const maxPriorityFeePerGas = (fees.maxPriorityFeePerGas ?? 1_000_000_000n) * feeMultiplier
+    let hash: Hex
+    try {
+      hash = await write({ maxFeePerGas, maxPriorityFeePerGas })
+    } catch (e) {
+      lastError = e
+      const msg = e instanceof Error ? e.message : String(e)
+      if (/underpriced|nonce too low|replacement/i.test(msg) && attempt < COTI_WRITE_ATTEMPTS) {
+        console.warn(`[testnet] ${label} submit failed (${msg}); bumping fees and retrying…`)
+        feeMultiplier *= 2n
+        continue
+      }
+      throw e
+    }
+    console.info(`[testnet] ${label} submitted (attempt ${attempt}/${COTI_WRITE_ATTEMPTS}): ${hash}`)
+    try {
+      const outcome = await waitCotiReceiptOrDrop(signer, hash, label)
+      if (outcome === 'mined') return
+      console.warn(`[testnet] ${label} dropped from mempool; bumping fees and retrying…`)
+      feeMultiplier *= 2n
+    } catch (e) {
+      lastError = e
+      if (attempt < COTI_WRITE_ATTEMPTS) {
+        console.warn(`[testnet] ${label} failed (${e instanceof Error ? e.message : e}); retrying…`)
+        feeMultiplier *= 2n
+        continue
+      }
+      throw e
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${label} failed after ${COTI_WRITE_ATTEMPTS} attempts`)
+}
+
 /**
  * Full campaign creation, mirroring useCreateCampaign step for step: one factory tx on
  * Fuji, registerRun + per-leaf registerLeaf on COTI (onlyOwner, explicit MPC gas), then
@@ -179,7 +255,7 @@ export async function createCampaignOnChain(params: {
   expiration?: number
 }): Promise<CreatedCampaign> {
   const { signer, aesKey, roster, campaignName } = params
-  const { account, fujiPublic, cotiPublic, fujiWallet, cotiWallet, signMessageAsync } = signer
+  const { account, fujiPublic, fujiWallet, signMessageAsync } = signer
 
   const tree = buildPayrollMerkleTree(roster, aesKey)
   const now = Math.floor(Date.now() / 1000)
@@ -204,13 +280,27 @@ export async function createCampaignOnChain(params: {
   const runId = campaignCreated.args.runId
   console.info(`[testnet] campaign created: facade=${facadeAddress} runId=${runId} tx=${createHash}`)
 
-  const registerRunHash = await cotiWallet.writeContract({
+  // Skip registerRun when a prior attempt already landed (orphaned Fuji facade recovery).
+  const existingRun = await signer.cotiPublic.readContract({
     ...cotiTestnetContracts.privatePayrollCoti,
-    functionName: 'registerRun',
-    args: [runId, tree.root],
+    functionName: 'runs',
+    args: [runId],
   })
-  const registerRunReceipt = await cotiPublic.waitForTransactionReceipt({ hash: registerRunHash })
-  if (registerRunReceipt.status !== 'success') throw new Error(`registerRun reverted (tx ${registerRunHash}).`)
+  if (!existingRun[1]) {
+    await writeCotiContract({
+      signer,
+      label: 'registerRun',
+      write: (fees) =>
+        signer.cotiWallet.writeContract({
+          ...cotiTestnetContracts.privatePayrollCoti,
+          functionName: 'registerRun',
+          args: [runId, tree.root],
+          ...fees,
+        }),
+    })
+  } else {
+    console.info(`[testnet] COTI run ${runId} already registered; skipping registerRun`)
+  }
 
   for (const pkg of tree.packages) {
     const itAmount = await buildRegisterLeafIt({
@@ -219,15 +309,19 @@ export async function createCampaignOnChain(params: {
       signerAddress: account.address as Hex,
       signMessageAsync,
     })
-    const hash = await cotiWallet.writeContract({
-      ...cotiTestnetContracts.privatePayrollCoti,
-      functionName: 'registerLeaf',
-      args: [runId, BigInt(pkg.index), pkg.recipient, pkg.amountCommitment, itAmount],
-      gas: COTI_REGISTER_LEAF_GAS,
+    await writeCotiContract({
+      signer,
+      label: `registerLeaf[${pkg.index}]`,
+      write: (fees) =>
+        signer.cotiWallet.writeContract({
+          ...cotiTestnetContracts.privatePayrollCoti,
+          functionName: 'registerLeaf',
+          args: [runId, BigInt(pkg.index), pkg.recipient, pkg.amountCommitment, itAmount],
+          gas: COTI_REGISTER_LEAF_GAS,
+          ...fees,
+        }),
     })
-    const receipt = await cotiPublic.waitForTransactionReceipt({ hash })
-    if (receipt.status !== 'success') throw new Error(`COTI registerLeaf reverted for index ${pkg.index} (tx ${hash}).`)
-    console.info(`[testnet] COTI leaf ${pkg.index} registered: tx=${hash}`)
+    console.info(`[testnet] COTI leaf ${pkg.index} registered`)
   }
 
   const facade = { address: facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const

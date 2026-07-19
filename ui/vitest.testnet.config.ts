@@ -10,8 +10,9 @@ export default defineConfig({
     include: ['tests/testnet/**/*.test.ts'],
     // A full create flow is ~6 sequential txs across two testnets, plus a possible
     // COTI onboarding tx; COTI blocks alone can take ~5-10s each.
-    testTimeout: 600_000,
-    hookTimeout: 180_000,
+    // Create + fund spans many Fuji/COTI txs; COTI writes may retry with fee bumps.
+    testTimeout: 900_000,
+    hookTimeout: 300_000,
     fileParallelism: false,
   },
 })
