@@ -5,9 +5,11 @@ import {
   createWalletClient,
   http,
   defineChain,
+  encodeAbiParameters,
   getAbiItem,
   parseAbi,
   parseEventLogs,
+  zeroAddress,
   type Hex,
   type PublicClient,
   type WalletClient,
@@ -21,8 +23,15 @@ import { decryptCtUint256 } from '@coti-io/coti-sdk-typescript'
 import { JsonRpcProvider, Wallet as CotiEthersWallet } from '@coti-io/coti-ethers'
 import { COTI_TESTNET_CHAIN_ID, avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
 import { buildPayrollMerkleTree, type PayrollMerkleTree, type RosterEntry } from '../../src/lib/merkle'
-import { buildRegisterLeafIt, type SignMessageAsync } from '../../src/lib/buildPayrollIt'
-import { COTI_REGISTER_LEAF_GAS } from '../../src/lib/podFees'
+import {
+  buildClaimIt,
+  buildRegisterLeafIt,
+  buildVerifyIt,
+  CLAIM_SELECTOR,
+  type SignMessageAsync,
+} from '../../src/lib/buildPayrollIt'
+import { toClaimPackage, type ClaimPackage } from '../../src/lib/claimPackage'
+import { computePTokenTwoWayFees, COTI_REGISTER_LEAF_GAS } from '../../src/lib/podFees'
 
 // Shared plumbing for the real-network (Fuji + COTI testnet) suites. Everything here reuses
 // the UI's production modules — merkle builder, IT builders, contracts config — swapping only
@@ -96,12 +105,32 @@ export function makeSigner(privateKey: Hex): TestnetSigner {
 export async function resolveAesKey(envVar: string, privateKey: Hex): Promise<string> {
   const fromEnv = process.env[envVar]
   if (fromEnv) return fromEnv
-  const wallet = new CotiEthersWallet(privateKey, new JsonRpcProvider(COTI_RPC))
-  await wallet.generateOrRecoverAes()
-  const recovered = wallet.getUserOnboardInfo()?.aesKey
-  if (!recovered) throw new Error(`coti-ethers onboarding did not return an AES key for ${envVar}'s account.`)
-  console.info(`[testnet] onboarded ${privateKeyToAccount(privateKey).address} on COTI; pin its AES key as ${envVar} in the repo-root .env to skip this tx on future runs.`)
-  return recovered
+  const address = privateKeyToAccount(privateKey).address
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const wallet = new CotiEthersWallet(privateKey, new JsonRpcProvider(COTI_RPC))
+      await wallet.generateOrRecoverAes()
+      const recovered = wallet.getUserOnboardInfo()?.aesKey
+      if (!recovered) {
+        throw new Error(`coti-ethers onboarding did not return an AES key for ${address}.`)
+      }
+      console.info(
+        `[testnet] onboarded ${address} on COTI; pin its AES key as ${envVar} in the repo-root .env to skip this tx on future runs.`,
+      )
+      return recovered
+    } catch (e) {
+      lastError = e
+      console.warn(
+        `[testnet] resolveAesKey(${envVar}) attempt ${attempt}/3 failed for ${address}: ` +
+          `${e instanceof Error ? e.message : e}`,
+      )
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 5_000 * attempt))
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Failed to resolve AES key for ${envVar} (${address})`)
 }
 
 export async function decryptPMttBalance(
@@ -336,4 +365,231 @@ export async function createCampaignOnChain(params: {
   }
 
   return { facadeAddress, runId, tree }
+}
+
+/** Portal-mint pMTT to `funder`, public-transfer into the facade, then admin requestCreditPool. */
+export async function fundCampaignOnChain(params: {
+  employer: TestnetSigner
+  funder: TestnetSigner
+  funderAesKey: string
+  facadeAddress: Hex
+  amount: bigint
+}): Promise<void> {
+  const { employer, funder, funderAesKey, facadeAddress, amount } = params
+  const { fujiPublic } = employer
+  const funderAddr = funder.account.address as Hex
+
+  const allowance = await fujiPublic.readContract({
+    address: UNDERLYING_MTT,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [employer.account.address as Hex, PRIVACY_PORTAL],
+  })
+  if (allowance < amount) {
+    const approveHash = await employer.fujiWallet.writeContract({
+      address: UNDERLYING_MTT,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [PRIVACY_PORTAL, amount],
+    })
+    const approveReceipt = await fujiPublic.waitForTransactionReceipt({ hash: approveHash })
+    if (approveReceipt.status !== 'success') throw new Error(`MTT approve reverted (tx ${approveHash}).`)
+  }
+
+  const [portalFee] = await fujiPublic.readContract({
+    address: PRIVACY_PORTAL,
+    abi: portalAbi,
+    functionName: 'estimateDepositFees',
+    args: [amount],
+  })
+  const { pTokenTransferFeeWei, pTokenCallbackFeeWei } = await computePTokenTwoWayFees(fujiPublic)
+
+  const depositHash = await employer.fujiWallet.writeContract({
+    address: PRIVACY_PORTAL,
+    abi: portalAbi,
+    functionName: 'deposit',
+    args: [funderAddr, amount, portalFee, pTokenCallbackFeeWei],
+    value: portalFee + pTokenTransferFeeWei,
+  })
+  const depositReceipt = await fujiPublic.waitForTransactionReceipt({ hash: depositHash })
+  if (depositReceipt.status !== 'success') throw new Error(`portal deposit reverted (tx ${depositHash}).`)
+  await waitForPTokenSettle({
+    fujiPublic,
+    from: zeroAddress,
+    to: funderAddr,
+    fromBlock: depositReceipt.blockNumber,
+    label: 'portal mint to funder',
+  })
+  const { pending: funderPending } = await decryptPMttBalance(fujiPublic, funderAddr, funderAesKey)
+  if (funderPending) throw new Error(`Funder ${funderAddr} still pending after portal mint settle.`)
+
+  const transferHash = await funder.fujiWallet.writeContract({
+    ...avaxContracts.pToken,
+    functionName: 'transfer',
+    args: [facadeAddress, amount, pTokenCallbackFeeWei],
+    value: pTokenTransferFeeWei,
+  })
+  const transferReceipt = await fujiPublic.waitForTransactionReceipt({ hash: transferHash })
+  if (transferReceipt.status !== 'success') throw new Error(`pToken transfer reverted (tx ${transferHash}).`)
+  await waitForPTokenSettle({
+    fujiPublic,
+    from: funderAddr,
+    to: facadeAddress,
+    fromBlock: transferReceipt.blockNumber,
+    label: 'fund transfer to facade',
+  })
+
+  const facade = { address: facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const
+  const creditedBefore = await fujiPublic.readContract({ ...facade, functionName: 'poolCreditedTotal' })
+  const inboxFeeWei = await fujiPublic.readContract({ ...facade, functionName: 'inboxFeeWei' })
+  const creditHash = await employer.fujiWallet.writeContract({
+    ...facade,
+    functionName: 'requestCreditPool',
+    args: [amount],
+    value: inboxFeeWei,
+  })
+  const creditReceipt = await fujiPublic.waitForTransactionReceipt({ hash: creditHash })
+  if (creditReceipt.status !== 'success') throw new Error(`requestCreditPool reverted (tx ${creditHash}).`)
+
+  const deadline = Date.now() + 300_000
+  while (Date.now() < deadline) {
+    const [total, poolLogs] = await Promise.all([
+      fujiPublic.readContract({ ...facade, functionName: 'poolCreditedTotal' }),
+      fujiPublic.getLogs({
+        address: facadeAddress,
+        event: getAbiItem({ abi: facade.abi, name: 'PoolCredited' }),
+        fromBlock: creditReceipt.blockNumber,
+      }),
+    ])
+    if (total >= creditedBefore + amount || poolLogs.length > 0) {
+      console.info(`[testnet] pool credited: facade=${facadeAddress} poolCreditedTotal=${total}`)
+      return
+    }
+    await new Promise((r) => setTimeout(r, 3_000))
+  }
+  throw new Error(`Timed out waiting for PoolCredited after requestCreditPool (tx ${creditHash}).`)
+}
+
+const REQUEST_PENDING = 1
+const REQUEST_FAILED = 3
+
+/**
+ * Employee claim path mirroring useClaimFlow (iter08): submitPayload(verifyIt, proof) →
+ * claim → wait for hasClaimed / vault payoutRequestStatus.
+ */
+export async function claimOnChain(params: {
+  claimant: TestnetSigner
+  aesKey: string
+  pkg: ClaimPackage
+  timeoutMs?: number
+}): Promise<{ claimHash: Hex; requestId: Hex | undefined; completed: boolean }> {
+  const { claimant, aesKey, pkg, timeoutMs = 300_000 } = params
+  const { fujiPublic, fujiWallet, signMessageAsync } = claimant
+  const address = claimant.account.address as Hex
+  if (address.toLowerCase() !== pkg.recipient.toLowerCase()) {
+    throw new Error(`CLAIM_PK address ${address} != package recipient ${pkg.recipient}`)
+  }
+
+  const facade = { address: pkg.facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const
+  const amount = BigInt(pkg.amount)
+
+  const [expired, alreadyClaimed, inboxFeeWei, facadeBalance] = await Promise.all([
+    fujiPublic.readContract({ ...facade, functionName: 'hasExpired' }),
+    fujiPublic.readContract({ ...facade, functionName: 'hasClaimed', args: [BigInt(pkg.index)] }),
+    fujiPublic.readContract({ ...facade, functionName: 'inboxFeeWei' }),
+    fujiPublic.getBalance({ address: pkg.facadeAddress }),
+  ])
+  if (expired) throw new Error('Campaign has expired.')
+  if (alreadyClaimed) throw new Error(`Index ${pkg.index} already claimed.`)
+  if (facadeBalance < inboxFeeWei) {
+    throw new Error(
+      `Facade ${pkg.facadeAddress} needs ≥ ${inboxFeeWei} wei AVAX for inbox fee (has ${facadeBalance}).`,
+    )
+  }
+
+  const signerParams = { aesKey, signerAddress: address, signMessageAsync }
+  const verifyIt = await buildVerifyIt({ amount, ...signerParams })
+  const claimIt = await buildClaimIt({
+    amount,
+    ...signerParams,
+    facadeAddress: pkg.facadeAddress,
+    selector: CLAIM_SELECTOR,
+  })
+  const proofHandle = encodeAbiParameters(
+    [{ type: 'bytes32[]' }, { type: 'uint256' }],
+    [pkg.proof, BigInt(pkg.index)],
+  )
+
+  const submitHash = await fujiWallet.writeContract({
+    ...avaxContracts.payrollClaimStore,
+    functionName: 'submitPayload',
+    args: [pkg.facadeAddress, BigInt(pkg.index), verifyIt, proofHandle],
+  })
+  const submitReceipt = await fujiPublic.waitForTransactionReceipt({ hash: submitHash })
+  if (submitReceipt.status !== 'success') throw new Error(`submitPayload reverted (tx ${submitHash}).`)
+  console.info(`[testnet] submitPayload ok: ${submitHash}`)
+
+  const minFeeWei = await fujiPublic.readContract({ ...facade, functionName: 'calculateMinFeeWei' })
+  const claimHash = await fujiWallet.writeContract({
+    ...facade,
+    functionName: 'claim',
+    args: [BigInt(pkg.index), pkg.recipient, claimIt, pkg.proof],
+    value: minFeeWei,
+  })
+  const claimReceipt = await fujiPublic.waitForTransactionReceipt({ hash: claimHash })
+  if (claimReceipt.status !== 'success') throw new Error(`claim reverted (tx ${claimHash}).`)
+  console.info(`[testnet] claim mined: ${claimHash}`)
+
+  const requestedLogs = await fujiPublic.getLogs({
+    address: avaxContracts.payrollVault.address,
+    event: getAbiItem({ abi: avaxContracts.payrollVault.abi, name: 'PayoutRequested' }),
+    fromBlock: claimReceipt.blockNumber,
+    toBlock: claimReceipt.blockNumber,
+  })
+  const requestId = requestedLogs.find(
+    (l) => l.transactionHash === claimHash && l.args.index === BigInt(pkg.index),
+  )?.args.requestId as Hex | undefined
+  console.info(`[testnet] payout requestId=${requestId ?? '(none)'}`)
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const claimed = await fujiPublic.readContract({
+      ...facade,
+      functionName: 'hasClaimed',
+      args: [BigInt(pkg.index)],
+    })
+    if (claimed) return { claimHash, requestId, completed: true }
+
+    if (requestId) {
+      const status = await fujiPublic.readContract({
+        ...avaxContracts.payrollVault,
+        functionName: 'payoutRequestStatus',
+        args: [requestId],
+      })
+      if (status === REQUEST_FAILED) {
+        throw new Error(
+          `COTI rejected claim (payoutRequestStatus=Failed, requestId=${requestId}, claimTx=${claimHash}).`,
+        )
+      }
+      if (status === REQUEST_PENDING) {
+        console.info(
+          `[testnet] payout still Pending on COTI inbox requestId=${requestId} ` +
+            `(${Math.round((deadline - Date.now()) / 1000)}s left)`,
+        )
+      }
+    }
+    await new Promise((r) => setTimeout(r, 3_000))
+  }
+
+  return { claimHash, requestId, completed: false }
+}
+
+export function claimPackageFromTree(
+  tree: PayrollMerkleTree,
+  facadeAddress: Hex,
+  recipient: Hex,
+): ClaimPackage {
+  const pkg = tree.packages.find((p) => p.recipient.toLowerCase() === recipient.toLowerCase())
+  if (!pkg) throw new Error(`No merkle package for recipient ${recipient}`)
+  return toClaimPackage(pkg, facadeAddress)
 }

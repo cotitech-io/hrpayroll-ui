@@ -1,5 +1,5 @@
-import { isAddress, type Hex } from 'viem'
-import type { MerklePackage } from './merkle'
+import { isAddress, type Address, type Hex } from 'viem'
+import { rebuildClaimPackagesFromCommitments, type MerklePackage } from './merkle'
 
 // What an employer's UI hands each employee out-of-band. No itAmount is included — the
 // employee re-encrypts the amount fresh with their own key at claim time, avoiding
@@ -77,4 +77,34 @@ export function claimPackageJson(pkg: ClaimPackage): string {
 
 export async function copyClaimPackage(pkg: ClaimPackage): Promise<void> {
   await navigator.clipboard.writeText(claimPackageJson(pkg))
+}
+
+/**
+ * Build one employee's claim package from the full on-chain roster.
+ * Merkle leaves use commitments only — other indices' plaintext amounts are irrelevant
+ * and can be placeholders. The claimant must supply their own correct plaintext amount
+ * (what the employer registered) so COTI's verifyAndCredit accepts the IT.
+ */
+export function buildClaimPackageForIndex(params: {
+  facadeAddress: Hex
+  roster: Array<{ index: number; recipient: Address; amountCommitment: Hex }>
+  index: number
+  amount: bigint
+}): ClaimPackage {
+  const { facadeAddress, roster, index, amount } = params
+  if (roster.length === 0) throw new Error('Campaign roster is empty.')
+  const target = roster.find((r) => r.index === index)
+  if (!target) throw new Error(`Index ${index} is not on this campaign roster.`)
+
+  const rebuilt = rebuildClaimPackagesFromCommitments(
+    roster.map((row) => ({
+      index: row.index,
+      recipient: row.recipient,
+      amountCommitment: row.amountCommitment,
+      amount: row.index === index ? amount : 0n,
+    })),
+  )
+  const pkg = rebuilt.find((p) => p.index === index)
+  if (!pkg) throw new Error(`Failed to rebuild package for index ${index}.`)
+  return toClaimPackage(pkg, facadeAddress)
 }

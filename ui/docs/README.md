@@ -8,7 +8,7 @@ redeploy (`requestCreditPool` / no Fuji `MpcCore`).
 |------|-----|---------|
 | Create campaign | [createCampaign.md](./createCampaign.md) | **Working** end-to-end (with COTI fee-bump retries in tests) |
 | Fund campaign | [fundCampaign.md](./fundCampaign.md) | **Working** on live (2026-07-19 E2E) — public transfer → `requestCreditPool` → `PoolCredited` |
-| Claim payroll | — | **UI wired for iter08** (`submitPayload` without payout IT → COTI verify → public `payoutTo`); live claim not yet retested here |
+| Claim payroll | [claimCampaign.md](./claimCampaign.md) | **Broken** — Fuji claim mines; COTI verify/payout stays Pending (live 2026-07-19) |
 
 ```mermaid
 flowchart LR

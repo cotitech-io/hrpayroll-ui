@@ -5,17 +5,17 @@ import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { ConnectPrompt } from '../components/ConnectPrompt'
 import { ClaimAction } from '../components/claim/ClaimAction'
 import { ClaimDetails } from '../components/claim/ClaimDetails'
-import { ClaimPackageBrowser } from '../components/claim/ClaimPackageBrowser'
 import { ClaimPackageInput } from '../components/claim/ClaimPackageInput'
+import { MyClaims } from '../components/claim/MyClaims'
 import { PTokenBalance } from '../components/claim/PTokenBalance'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
-import { claimPackageJson, type ClaimPackage } from '../lib/claimPackage'
+import type { ClaimPackage } from '../lib/claimPackage'
 
 export function EmployeePage() {
   const { isConnected } = useAccount()
   const { isUnlocked, unlock } = usePrivateUnlock()
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [pkg, setPkg] = useState<ClaimPackage | null>(null)
-  const [packageText, setPackageText] = useState('')
 
   const { data: alreadyClaimed } = useReadContract({
     address: pkg?.facadeAddress,
@@ -23,14 +23,8 @@ export function EmployeePage() {
     functionName: 'hasClaimed',
     args: pkg ? [BigInt(pkg.index)] : undefined,
     chainId: AVAX_CHAIN_ID,
-    query: { enabled: !!pkg?.facadeAddress },
+    query: { enabled: !!pkg?.facadeAddress && showAdvanced },
   })
-
-  function selectPackage(next: ClaimPackage) {
-    const text = claimPackageJson(next)
-    setPackageText(text)
-    setPkg(next)
-  }
 
   if (!isConnected) {
     return <ConnectPrompt message="Connect a wallet to claim your payroll." />
@@ -43,29 +37,36 @@ export function EmployeePage() {
           <button type="button" onClick={unlock}>
             Unlock private access
           </button>{' '}
-          — required before claiming (your amount is encrypted with your own key).
+          — required before claiming (your claim amount is encrypted with your key).
         </p>
       )}
 
       {isUnlocked && <PTokenBalance />}
 
-      <ClaimPackageBrowser onSelectPackage={selectPackage} />
+      <MyClaims unlocked={isUnlocked} />
 
-      <ClaimPackageInput value={packageText} onChange={(next, raw) => {
-        setPkg(next)
-        if (raw !== undefined) setPackageText(raw)
-      }} />
+      <p style={{ opacity: 0.75, fontSize: '0.9rem' }}>
+        Claim / payout events also show on <Link to="/">Activity</Link>.
+      </p>
 
-      {pkg && (
-        <div style={{ marginTop: '1rem' }}>
-          <ClaimDetails pkg={pkg} alreadyClaimed={alreadyClaimed} />
-          <p style={{ opacity: 0.75, fontSize: '0.9rem' }}>
-            After claiming, vault-wide claim/payout events appear on{' '}
-            <Link to="/">Activity</Link> (look for your address).
-          </p>
-          <ClaimAction pkg={pkg} disabled={!isUnlocked || alreadyClaimed === true} />
-        </div>
-      )}
+      <details
+        open={showAdvanced}
+        onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+        style={{ marginTop: '1.5rem' }}
+      >
+        <summary style={{ cursor: 'pointer' }}>Advanced: paste claim-package JSON</summary>
+        <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>
+          Only needed if you received a JSON file from your employer. Normal claims use the
+          list above — wallet + amount, no JSON.
+        </p>
+        <ClaimPackageInput onChange={(next) => setPkg(next)} />
+        {pkg && (
+          <div style={{ marginTop: '1rem' }}>
+            <ClaimDetails pkg={pkg} alreadyClaimed={alreadyClaimed} />
+            <ClaimAction pkg={pkg} disabled={!isUnlocked || alreadyClaimed === true} />
+          </div>
+        )}
+      </details>
     </div>
   )
 }

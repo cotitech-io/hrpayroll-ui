@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useAccount, usePublicClient, useSignMessage, useWriteContract } from 'wagmi'
-import { encodeAbiParameters, type Hex } from 'viem'
+import { encodeAbiParameters, getAbiItem, type Hex } from 'viem'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { buildClaimIt, buildVerifyIt, CLAIM_SELECTOR, CLAIM_TO_SELECTOR } from '../lib/buildPayrollIt'
@@ -8,6 +8,11 @@ import type { ClaimPackage } from '../lib/claimPackage'
 
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 300_000
+
+/** Mirrors PayrollVault.RequestStatus */
+const REQUEST_PENDING = 1
+const REQUEST_COMPLETED = 2
+const REQUEST_FAILED = 3
 
 export type ClaimResult =
   | { status: 'completed' }
@@ -119,6 +124,18 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
       log('claim mined', { claimHash, status: claimReceipt.status })
       if (claimReceipt.status !== 'success') throw new Error('Claim transaction reverted.')
 
+      const payoutRequested = getAbiItem({ abi: avaxContracts.payrollVault.abi, name: 'PayoutRequested' })
+      const requestedLogs = await publicClient.getLogs({
+        address: avaxContracts.payrollVault.address,
+        event: payoutRequested,
+        fromBlock: claimReceipt.blockNumber,
+        toBlock: claimReceipt.blockNumber,
+      })
+      const requestId = requestedLogs.find(
+        (l) => l.transactionHash === claimHash && l.args.index === BigInt(pkg.index),
+      )?.args.requestId
+      log('payout request', { requestId, claimHash })
+
       // hasClaimed flips only after COTI verifyAndCredit → onPayoutAuthorized → public payoutTo.
       stage('Waiting for COTI verify and payout…')
       const deadline = Date.now() + POLL_TIMEOUT_MS
@@ -132,11 +149,32 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
           log('claim completed')
           return { status: 'completed' }
         }
+        if (requestId) {
+          const status = await publicClient.readContract({
+            ...avaxContracts.payrollVault,
+            functionName: 'payoutRequestStatus',
+            args: [requestId],
+          })
+          if (status === REQUEST_FAILED) {
+            throw new Error(
+              `COTI rejected this claim (vault payout request ${requestId} failed). ` +
+                'Usually a wrong amount or proof — check the amount matches what the employer registered.',
+            )
+          }
+          if (status === REQUEST_COMPLETED) {
+            log('payout completed but hasClaimed still false — retrying read')
+          } else if (status === REQUEST_PENDING) {
+            log('payout still pending on COTI inbox', { requestId })
+          }
+        }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
       }
       return {
         status: 'pending',
-        message: 'Claim submitted; still waiting on COTI verification and public payout to complete.',
+        message:
+          `Claim tx ${claimHash} mined on Fuji, but COTI has not finished verify/payout yet` +
+          (requestId ? ` (request ${requestId} still Pending).` : '.') +
+          ' Do not submit another claim for the same index — wait or check Activity for PayoutCompleted / PayoutFailed.',
       }
     },
   })
