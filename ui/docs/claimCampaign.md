@@ -7,7 +7,8 @@ reverts on the employee's `itUint256`, records `ENCODE_FAILED` locally, and neve
 back to Fuji — so `payoutRequestStatus` stays **Pending** forever and `hasClaimed`
 never flips. This is an architectural incompatibility (user-bound ITs cannot cross the
 PoD inbox on real COTI), not a UI/test bug. Details in
-[Root cause (confirmed)](#root-cause-confirmed).
+[Root cause (confirmed)](#root-cause-confirmed); fix design in
+[Proposed solution (iter09)](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti).
 
 Verified with `npm run test:testnet -- tests/testnet/claimCampaign.test.ts`
 (`.env` `CLAIM_ADDRESS` / `CLAIM_PK`), the same pattern in UI claim attempts, and by
@@ -144,23 +145,146 @@ sequenceDiagram
 
 ---
 
-## Fix directions
+## Proposed solution (iter09): submit the claim amount directly on COTI
 
-1. **Follow the proven `registerLeaf` pattern:** have the employee submit their
-   claimed-amount IT **directly to `PrivatePayrollCoti` in their own COTI tx**
-   (validated + `offBoard`ed to a network-key ct), and have `verifyAndCredit`
-   `onBoard` the stored ct instead of receiving an IT through the inbox.
-2. **Or drop the encrypted eq-check:** the merkle leaf already binds
-   `(index, claimant, amountCommitment)`, so the inbox leg could carry only public
-   args.
-3. **Inbox hardening (independent):** the inbox should `raise` back to the source
-   chain on encode failure so vaults get `PayoutFailed` instead of hanging Pending;
-   today encode errors silently strand requests. Also note `retryFailedRequest`
-   excludes code-2 errors.
-4. **Sim fidelity:** make `SimExtendedOperations.ValidateCiphertext` enforce the
-   tx-sender binding so this class of failure reproduces in simCOTI.
-5. The 32-byte error payload `0xfe709212…` could be confirmed against gcEVM executor
-   logs by the COTI team, but is not needed for the diagnosis.
+**Principle:** never ship a user-bound IT through the inbox. ITs validate on live COTI
+only when the signer sends the COTI tx themself (`registerLeaf` proves this binding
+works), and plain `uint256`/`address`/`bytes` args cross the inbox fine (`creditPool`
+proves that). So: move the employee's amount attestation to a **direct COTI tx**, and
+strip the inbox leg down to **plain args only**.
+
+The employee already has a COTI presence — the claim flow already performs a COTI
+AccountOnboard tx to recover their AES key — so adding one more direct COTI tx fits
+the existing UX. New cost: the claimant needs a little native COTI for gas.
+
+### New flow
+
+```mermaid
+sequenceDiagram
+  participant Emp as Employee Fuji
+  participant Facade as PayrollCampaignFacade
+  participant Vault as PayrollVault
+  participant Inbox as Inbox
+  participant COTI as PrivatePayrollCoti
+
+  Note over Emp,COTI: once per account: COTI AccountOnboard (already in flow, recovers AES key)
+  Emp->>COTI: submitClaimAmount(runId, index, itAmount) direct COTI tx
+  Note over COTI: validateCiphertext passes: signer == tx sender<br/>stores offBoard(gtAmount) as submittedCt
+  Emp->>Facade: claim(index, recipient, proof)
+  Facade->>Vault: requestPayout(proofHandle)
+  Vault->>Inbox: MessageSent verifyAndCredit(runId, claimant, proofHandle) plain args only
+  Note over Vault: payoutRequestStatus = Pending
+  Inbox-->>COTI: miner delivers, codec passes plain args untouched
+  alt submittedCt present and eq(submitted, registered)
+    COTI-->>Inbox: respond(runId, index, claimant)
+    Inbox-->>Vault: onPayoutAuthorized → payoutTo + markClaimed
+  else missing submittedCt (code 7) or mismatch (code 6)
+    COTI-->>Inbox: raise(runId, index, code)
+    Inbox-->>Vault: onPayoutRejected → PayoutFailed
+  end
+```
+
+### COTI contract changes (`PrivatePayrollCoti`)
+
+```solidity
+mapping(uint256 => mapping(uint256 => ctUint256)) private _submittedAmountCt;
+
+event ClaimAmountSubmitted(uint256 indexed runId, uint256 indexed index, address claimant);
+
+/// Employee attests their claimed amount in their own COTI tx — the same
+/// (sender, contract, selector) IT binding registerLeaf already proves live.
+function submitClaimAmount(uint256 runId, uint256 index, itUint256 calldata itAmount) external {
+    require(runs[runId].exists, "PrivatePayrollCoti: unknown run");
+    require(!_spent[runId][index], "PrivatePayrollCoti: spent");
+    // employee-only: stops third parties overwriting the ct to grief the eq-check
+    require(_registeredEmployee[runId][index] == msg.sender, "PrivatePayrollCoti: not employee");
+    _submittedAmountCt[runId][index] = MpcCore.offBoard(MpcCore.validateCiphertext(itAmount));
+    emit ClaimAmountSubmitted(runId, index, msg.sender);
+}
+
+/// Inbox-delivered leg: gtUint256 claimed param REMOVED — plain args only.
+function verifyAndCredit(uint256 runId, address claimant, bytes calldata proofHandle)
+    external onlyInbox
+{
+    // ...existing checks unchanged (reject codes 1–5)...
+    ctUint256 memory submittedCt = _submittedAmountCt[runId][index];
+    if (_isEmpty(submittedCt)) { _reject(runId, index, 7); return; } // 7 = claim not pre-submitted
+    gtUint256 claimed = MpcCore.onBoard(submittedCt);
+    gtUint256 registered = MpcCore.onBoard(registeredCt);
+    if (!MpcCore.decrypt(MpcCore.eq(claimed, registered))) { _reject(runId, index, 6); return; }
+    _spent[runId][index] = true;
+    delete _submittedAmountCt[runId][index];
+    inbox.respond(abi.encode(runId, index, claimant));
+    emit PayoutVerified(runId, index, claimant);
+}
+```
+
+The proof-of-knowledge property is preserved: payout still requires someone who knows
+the private amount *and* controls the employee address to encrypt it under their AES
+key. A missing pre-submission now surfaces as a clean `PayoutFailed` (code 7) on Fuji
+instead of an eternally stuck Pending.
+
+### Fuji contract changes (vault / facade / claim store)
+
+- `PayrollVault.requestPayout`: build the wire message with **3 plain args** —
+  `MpcAbiCodec.create(verifyAndCredit.selector, 3).addArgument(runId)
+  .addArgument(recipient).addArgument(proofHandle)`. No `itUint256` argument, no
+  `IT_UINT256` datatype anywhere in the message.
+- `PodClaimStore.submitPayload`: the verify-IT parameter goes away. Since the facade's
+  `claim(index, recipient, …, proof)` already receives the merkle proof, the vault can
+  `abi.encode(proof, index)` itself — the claim-store hop can likely be dropped from
+  the claim path entirely (keep the contract for other uses if any).
+- Facade `claim`: drop the now-unused claim IT parameter if iter08 no longer consumes
+  it on Fuji (iter08 already removed local MpcCore usage). Note: iter08 sources are
+  not in this repo — the thin-facade branch that produced
+  `production-payroll-avalancheFuji.json` is where these edits land.
+
+### UI / test changes
+
+| Surface | Change |
+|---------|--------|
+| `src/lib/buildPayrollIt.ts` | Replace `buildVerifyIt` (inbox/batchProcessRequests binding — proven dead) with `buildSubmitClaimIt` bound to `(privatePayrollCoti, submitClaimAmount selector)`; drop `BATCH_PROCESS_SELECTOR` bindings for claim-side ITs |
+| `src/hooks/useClaimFlow.ts` | New step between AES-key recovery and the Fuji claim: switch wallet to COTI, send `submitClaimAmount(runId, index, it)`, wait for receipt (reuse the fee-bump/drop-retry logic from `tests/testnet/helpers.ts` `writeCotiContract`) |
+| `src/components/claim/MyClaims.tsx` | Surface the new step + map reject code 7 to "submit your claim amount on COTI first" |
+| `tests/testnet/helpers.ts` `claimOnChain` | Order: COTI `submitClaimAmount` → Fuji `claim` → wait for callback; assert `completed === true` |
+| New negative test | Fuji `claim` **without** pre-submission → expect `PayoutFailed` with code 7 (proves the failure mode is now loud, not stuck) |
+
+### Companion fixes (separate repos, not blockers for iter09)
+
+1. **Inbox:** `raise` back to the source chain on encode failure so vaults get
+   `PayoutFailed` instead of hanging Pending; today code-2 errors silently strand
+   requests and `retryFailedRequest` refuses them.
+2. **Sim fidelity:** make `SimExtendedOperations.ValidateCiphertext` enforce the
+   tx-sender binding so this class of failure reproduces in simCOTI instead of
+   passing.
+
+### Rollout
+
+1. Implement + deploy iter09 contracts (COTI `PrivatePayrollCoti`, Fuji vault/facade
+   wire change); refresh `ui/src/config/contracts.ts` + ABIs.
+2. Land the UI/test changes above; run `createCampaign` / `fundCampaign` /
+   `claimCampaign` testnet suites — claim should complete end-to-end for the first
+   time on live.
+3. The 8 stuck requests on runs 2/3 are unrecoverable (`retryFailedRequest` excludes
+   code 2, and a retry would fail identically) — abandon them with the old testnet
+   deploy.
+
+### Fallback alternative (if the COTI tx per claim is unacceptable)
+
+Drop the encrypted eq-check entirely: the merkle leaf already binds
+`(index, claimant, amountCommitment)`, so `verifyAndCredit` could verify the proof
+and respond without any amount comparison. Simpler (no extra employee tx, no COTI gas
+for claimants), but weakens the design: possession of the claim-package JSON alone
+would authorize the payout — the proof-of-knowledge of the private amount disappears.
+Prefer the primary design unless claimant COTI gas proves to be a real onboarding
+blocker.
+
+### Open items
+
+- The 32-byte encode-error payload `0xfe709212…` could be confirmed against gcEVM
+  executor logs by the COTI team, but is not needed for the diagnosis or the fix.
+- Decide whether `submitClaimAmount` should be resubmittable before `_spent` (current
+  sketch: yes, last write wins — harmless since only the employee can write).
 
 ---
 
