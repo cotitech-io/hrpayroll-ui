@@ -24,7 +24,10 @@ import {
 //   PRIVATE_AES_KEY_TESTNET — employer AES
 //   CLAIM_ADDRESS           — roster recipient (must match CLAIM_PK)
 //   CLAIM_PK                — employee wallet that submits the claim
-//   PRIVATE_AES_KEY_CLAIM_TESTNET — optional pin for the claimant AES (else onboard)
+//   CLAIM_AES_KEY           — the claimant's network AES key (else recovered via onboard;
+//                             NOTE: recovery via this repo's coti-ethers has been observed
+//                             to return a key that differs from the account's real network
+//                             key — always pin CLAIM_AES_KEY)
 //   PAYROLL_TEST_FUNDER_SALT — optional funder rotation (default v4)
 
 const claimPk = envPrivateKey('CLAIM_PK')
@@ -72,7 +75,7 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
       `PRIVATE_AES_KEY_FUNDER_${FUNDER_SALT.toUpperCase()}_TESTNET`,
       funderKey!,
     )
-    claimantAesKey = await resolveAesKey('PRIVATE_AES_KEY_CLAIM_TESTNET', claimPk!)
+    claimantAesKey = await resolveAesKey('CLAIM_AES_KEY', claimPk!)
 
     // Gas top-ups (employer → funder / claimant) for Fuji txs + COTI onboarding.
     for (const [label, addr, fujiNeed, cotiNeed] of [

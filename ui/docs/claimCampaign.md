@@ -1,14 +1,27 @@
 # Claim campaign flow
 
-**Status: broken on live — root cause confirmed (2026-07-19).** Everything up to and
+**Status: broken on live — failure point confirmed; root cause narrowed to two
+candidates, discriminating rerun in progress (2026-07-19).** Everything up to and
 including the Fuji `claim` tx works; the COTI `verifyAndCredit` leg is **never invoked**.
 The COTI inbox fails to re-encode the message because `MpcCore.validateCiphertext`
 reverts on the employee's `itUint256`, records `ENCODE_FAILED` locally, and never calls
 back to Fuji — so `payoutRequestStatus` stays **Pending** forever and `hasClaimed`
-never flips. This is an architectural incompatibility (user-bound ITs cannot cross the
-PoD inbox on real COTI), not a UI/test bug. Details in
-[Root cause (confirmed)](#root-cause-confirmed); fix design in
-[Proposed solution (iter09)](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti).
+never flips.
+
+Two candidate causes for the revert:
+
+1. **Wrong AES key ("local encryption") — confirmed present** (COTI-team feedback):
+   every failing run encrypted the claim IT under a key that is *not* the account's
+   real network AES key. An env-var name mismatch made the test ignore the
+   `CLAIM_AES_KEY` pin and fall back to an AES-recovery path that returns a wrong key.
+2. **Tx-context signature binding**: user-bound ITs relayed by the pod miner cannot
+   match a digest reconstructed from the miner-sent COTI tx.
+
+A rerun with the IT encrypted under the correct pinned key discriminates the two —
+see [Which cause? Discriminating rerun](#which-cause-discriminating-rerun). The
+[iter09 proposal](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti)
+below is required only if cause 2 holds; if the rerun completes, the current
+architecture works once the key is right.
 
 Verified with `npm run test:testnet -- tests/testnet/claimCampaign.test.ts`
 (`.env` `CLAIM_ADDRESS` / `CLAIM_PK`), the same pattern in UI claim attempts, and by
@@ -46,7 +59,7 @@ Earlier UI attempts on runId `2` left the same stuck Pending requests (`…093`,
 
 ---
 
-## Root cause (confirmed)
+## Root cause analysis
 
 ### On-chain evidence
 
@@ -78,7 +91,27 @@ for a callback that will never come.
 Worse: `retryFailedRequest` only accepts `errorCode 1` (execution failure), so code-2
 requests **cannot be retried** — and a retry would fail identically anyway.
 
-### Why validateCiphertext reverts: user binding
+### Candidate cause 1: wrong AES key — "local encryption" (confirmed present)
+
+COTI-team feedback on the diagnosis: *"ENCODE_FAILED means the it data is encoded
+incorrectly. I suspect you are using local encryption."* Verified — it's real:
+
+- The test resolved the claimant AES via `resolveAesKey('PRIVATE_AES_KEY_CLAIM_TESTNET', …)`,
+  but the repo-root `.env` pins the key as **`CLAIM_AES_KEY`**. The pin was silently
+  ignored in every failing run and the key was re-recovered each time via
+  `coti-ethers generateOrRecoverAes()`.
+- That recovery **returns a key that does not match the account's real network AES
+  key** (checked directly against the `CLAIM_AES_KEY` pin for
+  `0xAb81c57C…`; COTI confirms there is no key rotation / regeneration). Where the
+  recovery goes wrong is still open — the fork's `recoverUserKey` (XOR of two
+  RSA-decrypted shares) looks standard and its onboard contract
+  `0x536A67f0…5095` has code on testnet — but the outcome is that **all prior claim
+  ITs were encrypted under a wrong key**. The UI flow obtains its key through the
+  same recovery, so its attempts were equally affected.
+- Fixed in the test: `claimantAesKey = resolveAesKey('CLAIM_AES_KEY', …)` — always
+  pin `CLAIM_AES_KEY`; do not trust recovery.
+
+### Candidate cause 2: tx-context signature binding
 
 The employee's verify IT (`buildVerifyIt` in `src/lib/buildPayrollIt.ts`) is signed by
 the **employee** over the digest
@@ -93,7 +126,24 @@ employee can fix this — they never send the COTI tx.
 
 **Control case proving the IT format is fine:** `registerLeaf` ITs are built with the
 same SDK helper and validate on live COTI — because there the employer **sends the
-COTI tx themself**, so signer == tx sender.
+COTI tx themself**, so signer == tx sender. (Note: the employer's key comes from the
+`PRIVATE_AES_KEY_TESTNET` pin, not the broken recovery, so this control does not
+separate cause 1 from cause 2 — both differ between registerLeaf and the claim leg.)
+
+### Which cause? Discriminating rerun
+
+The IT's ECDSA signature is produced with the wallet **private key** over
+`(signer, contract, selector, ctHigh, ctLow)` — the AES key only affects the
+ciphertext bytes. So rerunning the claim test with the IT encrypted under the correct
+pinned `CLAIM_AES_KEY` separates the hypotheses cleanly:
+
+| Rerun outcome | Conclusion |
+|---------------|------------|
+| Claim completes (`hasClaimed` flips) | Cause 1 was the root cause: `validateCiphertext` rejects wrong-key ciphertexts. Cause 2 is wrong — miner-relayed user ITs work; retract the iter09 architecture claim (keep the inbox-hardening + sim-fidelity companion fixes). |
+| Still `ENCODE_FAILED` on the inbox | Encryption exonerated: cause 2 (tx-context binding) stands, iter09 proceeds. |
+
+Rerun status: **in progress** (test wired to `CLAIM_AES_KEY`, fresh campaign).
+Record the resulting requestId + `errors(requestId)` here once it lands.
 
 ### Why simCOTI passes and the fund path works
 
@@ -146,6 +196,13 @@ sequenceDiagram
 ---
 
 ## Proposed solution (iter09): submit the claim amount directly on COTI
+
+> **Precondition:** this redesign is needed only if
+> [cause 2](#candidate-cause-2-tx-context-signature-binding) is confirmed by the
+> discriminating rerun. If the rerun with the correct `CLAIM_AES_KEY` completes, the
+> current architecture works and iter09 is unnecessary — the
+> [companion fixes](#companion-fixes-separate-repos-not-blockers-for-iter09) remain
+> worthwhile either way.
 
 **Principle:** never ship a user-bound IT through the inbox. ITs validate on live COTI
 only when the signer sends the COTI tx themself (`registerLeaf` proves this binding
@@ -292,9 +349,13 @@ blocker.
 
 - iter08 shapes: `submitPayload` without payout IT; public `payoutTo(uint256)` after callback.
 - Merkle package rebuilt from the create-time tree (same commitments registered on COTI).
-- Claimant AES recovered via COTI AccountOnboard (`CLAIM_PK`); amount = registered plaintext
-  (`100` pMTT in the test).
+- Amount = registered plaintext (`100` pMTT in the test).
 - Preflights: not expired, not claimed, facade funded with AVAX.
+
+**What WAS wrong in the test:** the claimant AES key. Recovery via
+`generateOrRecoverAes()` returns a non-network key (cause 1 above), and the
+`CLAIM_AES_KEY` pin was ignored due to an env-var name mismatch — fixed; the test now
+reads `CLAIM_AES_KEY`.
 
 ---
 
@@ -306,8 +367,9 @@ PRIVATE_KEY3=…
 PRIVATE_AES_KEY_TESTNET=…
 CLAIM_ADDRESS=0xAb81c57CCc578a5636BFF47B896BEC6Af1c30012
 CLAIM_PK=…
-# optional after first onboard:
-# PRIVATE_AES_KEY_CLAIM_TESTNET=…
+CLAIM_AES_KEY=…   # the claimant's REAL network AES key — required; AES recovery via
+                  # this repo's coti-ethers returns a wrong key (see cause 1)
+# optional:
 # PRIVATE_AES_KEY_FUNDER_V4_TESTNET=…
 ```
 
