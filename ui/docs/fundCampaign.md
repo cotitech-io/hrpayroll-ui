@@ -141,19 +141,108 @@ not enough: the deployed facade bytecode also carries the `OnBoard`, `CheckedSub
 `Decrypt` call selectors, so every claim dies the same way. **Any real fix must remove
 all local MpcCore usage from the Fuji-side contracts.**
 
-### What a PoD-correct fund/ack looks like (target design)
+### How `PayrollCampaignFacade` should be rewritten (so fund + transfer work)
 
-1. **Fund** — pToken to facade: unchanged, already PoD-compliant.
-2. **Ack** — employer calls the facade via `PodContract.encryptAndCallMethod`; the IT
-   comes from the encryption service; the facade forwards a `creditPool` request through
-   the inbox to `PrivatePayrollCoti` on COTI.
-3. **COTI side** — `validateCiphertext` runs where 0x64 is real; `_poolBalanceCt` and the
-   `_deductPool` encrypted compare live on COTI.
-4. **Callback** — COTI reports success; the facade flips a funded flag / emits the event
-   the UI waits on.
-5. **Claim** — the facade keeps the public checks it can do locally (Merkle proof,
-   claimed bitmap, fees), forwards the pool deduct through the inbox, and the COTI
-   callback triggers the vault payout.
+Today the facade is a **COTI-native MPC contract** that happens to be deployed on Fuji.
+Rewrite it as a **thin Fuji state machine** that only does public checks + inbox I/O, and
+put every `MpcCore.*` call on `PrivatePayrollCoti` (or a dedicated COTI twin).
+
+The employer → facade **inbound** pToken transfer is already PoD-shaped when using the
+public overload. The rewrite must also make **outbound** `payoutTo` / clawback transfers
+use a settle path that works on live Fuji (public `uint256` until encrypted settle is
+green), and remove local `ackPoolCredit` / `_deductPool` that call empty `0x64`.
+
+```mermaid
+flowchart TB
+  subgraph fuji [Fuji - rewritten facade]
+    Pub[Public checks: merkle, claimed, fees, admin]
+    InboxOut[Inbox two-way requests]
+    InboxIn[Callbacks: credit ok / deduct ok / payout auth]
+    Payout[pToken.transfer public uint256 + fee]
+  end
+  subgraph coti [COTI - PrivatePayrollCoti twin]
+    MPC[validateCiphertext / onBoard / checkedSub / offBoard]
+    Pool["_poolBalanceCt encrypted ledger"]
+  end
+  Emp[Employer] -->|public pToken.transfer to facade| Tok[pMTT on Fuji]
+  Emp -->|encryptAndCallMethod creditPool| InboxOut
+  InboxOut --> MPC
+  MPC --> Pool
+  Pool --> InboxIn
+  Claim[Employee claim] --> Pub --> InboxOut
+  InboxIn --> Payout
+```
+
+#### Split of responsibilities
+
+| Concern | Keep on Fuji facade | Move to COTI |
+|---------|---------------------|--------------|
+| Merkle root, leaf registry, claimed bitmap, expiration, fees | Yes | — |
+| `admin`, `runId`, wiring to vault / claim store | Yes | — |
+| `_poolBalanceCt`, `ackPoolCredit` local validate/offBoard | **Delete** | `creditPool(itUint256)` / network-key ledger |
+| `_deductPool` (onBoard / checkedSub / decrypt) | **Delete** | `deductPool` before authorizing payout |
+| Claim amount IT validation | **Delete** from `_preProcessClaim` | Part of COTI `verifyAndCredit` (already exists for roster) |
+| `payoutTo` / clawback token send | Yes — but change signature (below) | Amount authorized in callback |
+
+#### Concrete API changes (facade)
+
+1. **Remove** `ackPoolCredit(itUint256)` and all `MpcCore` imports / `_poolBalanceCt`.
+2. **Add** inbox-facing entrypoints (names illustrative), payable with two-way fees:
+   - `requestCreditPool(/* encryption-service IT or public amount + proof */)` → forwards to
+     COTI `creditPool`
+   - `onPoolCredited(bytes32 requestId, …)` callback — sets a public `poolCredited` /
+     cumulative funded marker the UI can poll (plaintext flag is enough if amounts stay
+     private on COTI)
+3. **Rewrite `claim` / `claimTo`:**
+   - Fuji: time/fee/merkle/claimed checks only (no `validateCiphertext`, no `_deductPool`)
+   - Then `payrollVault.requestPayout` as today (vault already does inbox → COTI
+     `verifyAndCredit`)
+   - Optionally: COTI deducts encrypted pool in the same verify path so underfund (S22)
+     stays on-chain without Fuji MPC
+4. **Rewrite `payoutTo` / clawback transfer leg** (this is what makes **transfer** work):
+
+   ```solidity
+   // Today (broken on live for encrypted settle):
+   IPodERC20(TOKEN).transfer{value: msg.value}(to, itAmount, callbackFee);
+
+   // Target (matches working fund path + portal mint):
+   IPodERC20(TOKEN).transfer{value: msg.value}(to, plainAmount, callbackFee);
+   // plainAmount comes from COTI callback / vault authorization, not from a Fuji IT
+   ```
+
+   Until live `transfer(itUint256)` settles reliably, **do not** have the facade call the
+   encrypted overload for payouts. Privacy of *salary size* still comes from COTI
+   verification + commitments; only the payout amount on the wire becomes public (same
+   tradeoff as today’s public fund transfer).
+
+5. **Optional: bind credit to inbound Transfer** — instead of a separate employer ack,
+   a Fuji watcher/relayer (or facade hook if pToken supports it) calls `requestCreditPool`
+   when `Transfer(from, facade, …)` is observed. That deletes ack as a UX step; pool
+   math still runs on COTI.
+
+#### End-to-end target fund → claim
+
+| Step | Who | Call |
+|------|-----|------|
+| 1. Fund tokens | Employer / funder | `pToken.transfer(facade, amount, callbackFee)` **public** (working today) |
+| 2. Credit pool | Employer (or relayer) | Facade → inbox → COTI `creditPool` (MPC at real `0x64`) |
+| 3. Callback | Inbox | Facade marks funded / emits event |
+| 4. Claim | Employee | Facade public checks → vault → COTI verify (+ deduct pool) |
+| 5. Payout | Vault → facade `payoutTo` | `pToken.transfer(to, plainAmount, fee)` **public** |
+
+#### What this does *not* fix by itself
+
+- Live encrypted `pToken.transfer(itUint256)` settle (inbox/COTI token path) — tracked in
+  the retest section below. Facade rewrite **avoids depending on it** for fund and payout.
+- Need for a new factory deploy + COTI twin ABI; existing facades stay broken.
+
+#### UI / IT builder impact
+
+| Today | After rewrite |
+|-------|----------------|
+| `buildAckPoolIt` (local AES → facade selector) | Encryption-service IT (or drop ack UX if credit is event-driven) |
+| `buildClaimIt` for facade `claim` | Claimant ITs only for COTI inbox legs that still need them (`verify` / `payout` payloads) |
+| `useFundCampaign` waits for settle then `ackPoolCredit` | Wait settle → `requestCreditPool` (or poll `PoolCredited`) — never call local `MpcCore` |
 
 ### Encrypted `transfer(itUint256)` — mechanism + live retest (2026-07-19)
 
@@ -312,7 +401,7 @@ This only works in sim because `SimExtendedOperations` is planted at 0x64. Nativ
 
 | # | Option | Feasible? | Notes |
 |---|--------|-----------|-------|
-| 1 | **Adopt PoD architecture** (the intended design, not a workaround): move `_poolBalanceCt` + `_deductPool` to COTI (`PrivatePayrollCoti`); facade forwards ack/claim through the Fuji inbox (`PodContract.encryptAndCallMethod`, encryption-service ITs); COTI callbacks update Fuji state | **Yes — the real fix** | New deploy; makes the facade a proper PoD app, like PodERC20 already is. See the target design above |
+| 1 | **Rewrite facade** (see [How PayrollCampaignFacade should be rewritten](#how-payrollcampaignfacade-should-be-rewritten-so-fund--transfer-work)): no local `MpcCore`; pool on COTI; public `pToken.transfer` for payouts | **Yes — the real fix** | New deploy; inbound fund already works; outbound transfer stops using broken `itUint256` settle |
 | 2 | Drop encrypted ack; credit pool from the pToken settle callback | Yes — pairs with 1 | Fund path is already the public-amount transfer, so the amount is public on the wire anyway; deletes `ackPoolCredit` as a concept |
 | 3 | Demo-only shim: deploy a `SimExtendedOperations`-style validator at a normal Fuji address; recompile with `MPC_PRECOMPILE` repointed | Demo only — **insecure** | AES keys sit in public contract storage, readable by anyone; must never be described as private |
 | 4 | E2E today: Anvil/Hardhat fork of Fuji with `setCode` at 0x64 (or keep simCOTI) | Yes — zero deploys | Same trick as the eth_call state-override proof; unblocks fund→ack→claim in CI now |
