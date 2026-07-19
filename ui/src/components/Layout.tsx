@@ -4,13 +4,13 @@ import { Lock, Unlock } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { CustomConnectButton } from './CustomConnectButton'
-import { EmployerSidebar } from './employer/EmployerSidebar'
+import { OrganizationSidebar } from './organization/OrganizationSidebar'
 import { ThemeToggle } from './ThemeToggle'
 import { cn } from '../lib/utils'
 
 function ViewToggle() {
   const { pathname } = useLocation()
-  const employerActive = pathname.startsWith('/employer')
+  const organizationActive = pathname.startsWith('/organization')
   const employeeActive = pathname.startsWith('/employee')
 
   return (
@@ -27,15 +27,15 @@ function ViewToggle() {
         Employee
       </NavLink>
       <NavLink
-        to="/employer"
+        to="/organization"
         className={cn(
           'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
-          employerActive
+          organizationActive
             ? 'bg-white text-slate-900 shadow-sm ring-1 ring-black/5'
             : 'text-slate-500 hover:text-slate-800',
         )}
       >
-        Employer
+        Organization
       </NavLink>
     </div>
   )
@@ -73,7 +73,7 @@ function CompactSidebar({ title, links }: { title: string; links: { to: string; 
           C
         </div>
         <div className="leading-tight">
-          <div className="text-base font-semibold tracking-tight">COTI PayRoll</div>
+          <div className="text-base font-semibold tracking-tight">COTI Payroll</div>
           <div className="text-xs text-white/50">Avalanche · Fuji</div>
         </div>
       </div>
@@ -110,12 +110,12 @@ function CompactSidebar({ title, links }: { title: string; links: { to: string; 
 
 export function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
-  const isEmployer = pathname.startsWith('/employer')
+  const isOrganization = pathname.startsWith('/organization')
 
   return (
     <div className="flex min-h-screen bg-[#F4F6FB] text-slate-900">
-      {isEmployer ? (
-        <EmployerSidebar />
+      {isOrganization ? (
+        <OrganizationSidebar />
       ) : (
         <CompactSidebar
           title={pathname.startsWith('/employee') ? 'Employee' : 'App'}
@@ -125,7 +125,7 @@ export function Layout({ children }: { children: ReactNode }) {
               : [
                   { to: '/', label: 'Activity', end: true },
                   { to: '/employee', label: 'Employee' },
-                  { to: '/employer', label: 'Employer' },
+                  { to: '/organization', label: 'Organization' },
                 ]
           }
         />
@@ -137,7 +137,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3">
             <UnlockPrivateAccessButton />
             <CustomConnectButton />
-            {isEmployer && <ThemeToggle />}
+            {isOrganization && <ThemeToggle />}
           </div>
         </header>
         <main className="flex-1 overflow-auto p-6 md:p-8">{children}</main>

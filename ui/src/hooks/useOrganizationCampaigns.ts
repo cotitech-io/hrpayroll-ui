@@ -5,7 +5,7 @@ import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
 import { loadCampaign } from '../lib/campaignStorage'
 import { withFacadeAddress, type ClaimPackage } from '../lib/claimPackage'
 
-export type EmployerCampaign = {
+export type OrganizationCampaign = {
   runId: bigint
   facadeAddress: Hex
   campaignName: string
@@ -25,15 +25,15 @@ export type EmployerCampaign = {
 // the connected wallet deployed. Plain per-call readContract rather than multicall — the
 // wallet plugin's custom Fuji chain definition doesn't declare a multicall3 address, and this
 // is a small, testnet-scale list where a few extra RPC round trips don't matter.
-export function useEmployerCampaigns() {
+export function useOrganizationCampaigns() {
   const { address } = useAccount()
   const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
 
   return useQuery({
-    queryKey: ['employer-campaigns', avaxContracts.payrollVault.address, address],
+    queryKey: ['organization-campaigns', avaxContracts.payrollVault.address, address],
     enabled: !!publicClient && !!address,
     staleTime: 30_000,
-    queryFn: async (): Promise<EmployerCampaign[]> => {
+    queryFn: async (): Promise<OrganizationCampaign[]> => {
       if (!publicClient || !address) return []
       const { payrollVault, payrollCampaignFacade } = avaxContracts
 
@@ -74,7 +74,7 @@ export function useEmployerCampaigns() {
         ),
       )
 
-      const campaigns: EmployerCampaign[] = []
+      const campaigns: OrganizationCampaign[] = []
       runs.forEach(({ runId, facade, startTime, expiration }, i) => {
         const [admin, campaignName, hasExpired, poolCreditedTotal] = details[i]
         if (admin.toLowerCase() !== address.toLowerCase()) return

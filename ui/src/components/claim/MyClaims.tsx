@@ -27,7 +27,7 @@ type MyClaimRow = {
 /**
  * Primary employee claim UX — no JSON.
  * Wallet address finds your roster rows; proofs are rebuilt from on-chain commitments;
- * you only confirm the plaintext amount (salary) the employer registered for you.
+ * you only confirm the plaintext amount (salary) the organization registered for you.
  */
 export function MyClaims({ unlocked }: { unlocked: boolean }) {
   const { address } = useAccount()
@@ -120,7 +120,7 @@ export function MyClaims({ unlocked }: { unlocked: boolean }) {
         <h2 style={{ fontSize: '1.15rem' }}>Your claims</h2>
         <p style={{ opacity: 0.75 }}>
           No payroll roster entries match <code>{address}</code> on this vault. Connect the
-          wallet your employer registered, or ask them to confirm your address.
+          wallet your organization registered, or ask them to confirm your address.
         </p>
       </section>
     )
@@ -191,7 +191,7 @@ export function MyClaims({ unlocked }: { unlocked: boolean }) {
               </Button>
 
               {!row.funded && (
-                <p style={{ color: 'orange', fontSize: '0.85rem' }}>Waiting for employer funding.</p>
+                <p style={{ color: 'orange', fontSize: '0.85rem' }}>Waiting for organization funding.</p>
               )}
               {row.hasExpired && !row.hasClaimed && (
                 <p style={{ color: 'orange', fontSize: '0.85rem' }}>Campaign expired.</p>
@@ -201,7 +201,7 @@ export function MyClaims({ unlocked }: { unlocked: boolean }) {
               )}
               {!human.trim() && !row.hasClaimed && (
                 <p style={{ fontSize: '0.85rem', opacity: 0.75 }}>
-                  Enter the amount your employer told you (must match the registered payroll).
+                  Enter the amount your organization told you (must match the registered payroll).
                 </p>
               )}
 

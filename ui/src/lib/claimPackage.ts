@@ -1,7 +1,7 @@
 import { isAddress, type Address, type Hex } from 'viem'
 import { rebuildClaimPackagesFromCommitments, type MerklePackage } from './merkle'
 
-// What an employer's UI hands each employee out-of-band. No itAmount is included — the
+// What an organization's UI hands each employee out-of-band. No itAmount is included — the
 // employee re-encrypts the amount fresh with their own key at claim time, avoiding
 // signature reuse/staleness across the three ITs a claim actually needs.
 // facadeAddress is required so claims target the campaign that issued the package
@@ -83,7 +83,7 @@ export async function copyClaimPackage(pkg: ClaimPackage): Promise<void> {
  * Build one employee's claim package from the full on-chain roster.
  * Merkle leaves use commitments only — other indices' plaintext amounts are irrelevant
  * and can be placeholders. The claimant must supply their own correct plaintext amount
- * (what the employer registered) so COTI's verifyAndCredit accepts the IT.
+ * (what the organization registered) so COTI's verifyAndCredit accepts the IT.
  */
 export function buildClaimPackageForIndex(params: {
   facadeAddress: Hex

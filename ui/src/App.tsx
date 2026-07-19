@@ -5,7 +5,7 @@ import { ThemeProvider } from './providers/ThemeProvider'
 import { Layout } from './components/Layout'
 import { ActivityPage } from './pages/ActivityPage'
 import { EmployeePage } from './pages/EmployeePage'
-import { EmployerPage } from './pages/EmployerPage'
+import { OrganizationPage } from './pages/OrganizationPage'
 
 function App() {
   return (
@@ -23,7 +23,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<ActivityPage />} />
                   <Route path="/employee" element={<EmployeePage />} />
-                  <Route path="/employer/*" element={<EmployerPage />} />
+                  <Route path="/organization/*" element={<OrganizationPage />} />
                 </Routes>
               </Layout>
             </BrowserRouter>

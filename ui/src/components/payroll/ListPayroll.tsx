@@ -2,15 +2,15 @@ import { useState } from 'react'
 import { AddressLink } from '../AddressLink'
 import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
-import { useEmployerCampaigns, type EmployerCampaign } from '../../hooks/useEmployerCampaigns'
+import { useOrganizationCampaigns, type OrganizationCampaign } from '../../hooks/useOrganizationCampaigns'
 import { ExportClaimPackagesModal } from './ExportClaimPackagesModal'
 import { FundCampaignModal } from './FundCampaignModal'
 
-/** The connected employer's previous campaigns, with fund and claim-package-export actions. */
+/** The connected organization's previous campaigns, with fund and claim-package-export actions. */
 export function ListPayroll() {
-  const { data: campaigns, isLoading, error } = useEmployerCampaigns()
-  const [fundingFor, setFundingFor] = useState<EmployerCampaign | null>(null)
-  const [exportingFor, setExportingFor] = useState<EmployerCampaign | null>(null)
+  const { data: campaigns, isLoading, error } = useOrganizationCampaigns()
+  const [fundingFor, setFundingFor] = useState<OrganizationCampaign | null>(null)
+  const [exportingFor, setExportingFor] = useState<OrganizationCampaign | null>(null)
 
   if (isLoading) return <p className="text-sm text-slate-500">Loading your previous campaigns…</p>
   if (error) return <InlineError>{(error as Error).message}</InlineError>

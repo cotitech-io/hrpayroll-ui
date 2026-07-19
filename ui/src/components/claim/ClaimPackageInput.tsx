@@ -49,7 +49,7 @@ export function ClaimPackageInput({
   return (
     <>
       <label>
-        Paste your claim package (JSON from your employer)
+        Paste your claim package (JSON from your organization)
         <textarea
           rows={6}
           style={{ width: '100%', fontFamily: 'monospace' }}

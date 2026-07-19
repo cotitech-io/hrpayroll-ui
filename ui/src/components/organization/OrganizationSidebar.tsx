@@ -4,7 +4,7 @@ import { useAccount, useBalance } from 'wagmi'
 import { avalancheFuji } from 'viem/chains'
 import { cn } from '../../lib/utils'
 import { shortAddr } from '../../lib/format'
-import { useEmployerCampaigns } from '../../hooks/useEmployerCampaigns'
+import { useOrganizationCampaigns } from '../../hooks/useOrganizationCampaigns'
 
 const navItems: {
   to: string
@@ -13,16 +13,16 @@ const navItems: {
   icon: typeof LayoutDashboard
   badge?: boolean
 }[] = [
-  { to: '/employer', end: true, label: 'Overview', icon: LayoutDashboard },
-  { to: '/employer/runs', end: false, label: 'Payroll runs', icon: List },
-  { to: '/employer/create', end: false, label: 'Create payroll', icon: Plus },
-  { to: '/employer/needs-funding', end: false, label: 'Needs funding', icon: Gem, badge: true },
+  { to: '/organization', end: true, label: 'Overview', icon: LayoutDashboard },
+  { to: '/organization/runs', end: false, label: 'Payroll runs', icon: List },
+  { to: '/organization/create', end: false, label: 'Create payroll', icon: Plus },
+  { to: '/organization/needs-funding', end: false, label: 'Needs funding', icon: Gem, badge: true },
 ]
 
-export function EmployerSidebar() {
+export function OrganizationSidebar() {
   const { address, isConnected } = useAccount()
   const { data: balance } = useBalance({ address, chainId: avalancheFuji.id })
-  const { data: campaigns } = useEmployerCampaigns()
+  const { data: campaigns } = useOrganizationCampaigns()
 
   const needsFundingCount =
     campaigns?.filter((c) => !c.hasExpired && !c.hasReceivedFunds).length ?? 0
@@ -38,14 +38,14 @@ export function EmployerSidebar() {
           C
         </div>
         <div className="leading-tight">
-          <div className="text-base font-semibold tracking-tight">COTI PayRoll</div>
+          <div className="text-base font-semibold tracking-tight">COTI Payroll</div>
           <div className="text-xs text-white/50">Avalanche · Fuji</div>
         </div>
       </div>
 
       <div className="px-4">
         <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
-          Employer
+          Organization
         </p>
         <nav className="flex flex-col gap-1">
           {navItems.map(({ to, end, label, icon: Icon, badge }) => (

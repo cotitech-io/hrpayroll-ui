@@ -8,11 +8,11 @@ import { CampaignOwnerCheck } from '../components/payroll/CampaignOwnerCheck'
 import { CreatePayroll } from '../components/payroll/CreatePayroll'
 import { DeployProgressModal } from '../components/payroll/DeployProgressModal'
 import { ListPayroll } from '../components/payroll/ListPayroll'
-import { EmployerNeedsFunding } from '../components/employer/EmployerNeedsFunding'
-import { EmployerOverview } from '../components/employer/EmployerOverview'
+import { OrganizationNeedsFunding } from '../components/organization/OrganizationNeedsFunding'
+import { OrganizationOverview } from '../components/organization/OrganizationOverview'
 import { useCreateCampaign, type CreateCampaignResult } from '../hooks/useCreateCampaign'
 
-function EmployerCreate() {
+function OrganizationCreate() {
   const { isUnlocked } = usePrivateUnlock()
   const [result, setResult] = useState<CreateCampaignResult | null>(null)
   const [deployedName, setDeployedName] = useState('')
@@ -64,7 +64,7 @@ function EmployerCreate() {
   )
 }
 
-function EmployerRuns() {
+function OrganizationRuns() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
@@ -78,7 +78,7 @@ function EmployerRuns() {
   )
 }
 
-export function EmployerPage() {
+export function OrganizationPage() {
   const { isConnected } = useAccount()
   const { pathname } = useLocation()
 
@@ -88,17 +88,17 @@ export function EmployerPage() {
 
   // Nested routes via Outlet when using React Router nested setup; also support
   // direct path matching so a single parent route can render section pages.
-  if (pathname === '/employer' || pathname === '/employer/') {
-    return <EmployerOverview />
+  if (pathname === '/organization' || pathname === '/organization/') {
+    return <OrganizationOverview />
   }
-  if (pathname.startsWith('/employer/runs')) {
-    return <EmployerRuns />
+  if (pathname.startsWith('/organization/runs')) {
+    return <OrganizationRuns />
   }
-  if (pathname.startsWith('/employer/create')) {
-    return <EmployerCreate />
+  if (pathname.startsWith('/organization/create')) {
+    return <OrganizationCreate />
   }
-  if (pathname.startsWith('/employer/needs-funding')) {
-    return <EmployerNeedsFunding />
+  if (pathname.startsWith('/organization/needs-funding')) {
+    return <OrganizationNeedsFunding />
   }
 
   return <Outlet />

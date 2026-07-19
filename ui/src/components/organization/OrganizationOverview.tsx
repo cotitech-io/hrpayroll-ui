@@ -6,7 +6,7 @@ import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
 import { ConnectPrompt } from '../ConnectPrompt'
 import { useAccount } from 'wagmi'
-import { useEmployerCampaigns, type EmployerCampaign } from '../../hooks/useEmployerCampaigns'
+import { useOrganizationCampaigns, type OrganizationCampaign } from '../../hooks/useOrganizationCampaigns'
 import { FundCampaignModal } from '../payroll/FundCampaignModal'
 import { cn } from '../../lib/utils'
 
@@ -34,7 +34,7 @@ function NeedsAttentionRow({
   campaign,
   onFund,
 }: {
-  campaign: EmployerCampaign
+  campaign: OrganizationCampaign
   onFund: () => void
 }) {
   return (
@@ -63,10 +63,10 @@ function NeedsAttentionRow({
   )
 }
 
-export function EmployerOverview() {
+export function OrganizationOverview() {
   const { isConnected } = useAccount()
-  const { data: campaigns, isLoading, error } = useEmployerCampaigns()
-  const [fundingFor, setFundingFor] = useState<EmployerCampaign | null>(null)
+  const { data: campaigns, isLoading, error } = useOrganizationCampaigns()
+  const [fundingFor, setFundingFor] = useState<OrganizationCampaign | null>(null)
 
   if (!isConnected) {
     return <ConnectPrompt message="Connect a wallet to create or fund a payroll." />
@@ -113,7 +113,7 @@ export function EmployerOverview() {
             size="sm"
             className="shrink-0 rounded-xl bg-orange-500 text-white hover:bg-orange-500/90"
           >
-            <Link to="/employer/needs-funding">Review runs</Link>
+            <Link to="/organization/needs-funding">Review runs</Link>
           </Button>
         </div>
       )}
@@ -144,7 +144,7 @@ export function EmployerOverview() {
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-slate-900">Needs attention</h2>
           <Link
-            to="/employer/runs"
+            to="/organization/runs"
             className="text-sm font-medium text-[#1E29F6] hover:underline"
           >
             View all payrolls →

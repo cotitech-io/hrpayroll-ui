@@ -100,9 +100,9 @@ function buildProof(leaves: Hex[], targetIndex: number): Hex[] {
 // relying on sim-coti-node's simEncryptUint256 being deterministic — would silently produce a
 // different ciphertext/commitment and break every merkle proof against the value actually
 // stored on-chain.
-export function buildPayrollMerkleTree(entries: RosterEntry[], employerAesKey: string): PayrollMerkleTree {
+export function buildPayrollMerkleTree(entries: RosterEntry[], organizationAesKey: string): PayrollMerkleTree {
   const sorted = [...entries].sort((a, b) => a.index - b.index)
-  const commitments = sorted.map((e) => amountCommitmentFromCiphertext(encryptUint256(e.amount, employerAesKey)))
+  const commitments = sorted.map((e) => amountCommitmentFromCiphertext(encryptUint256(e.amount, organizationAesKey)))
   const leaves = sorted.map((e, i) => encodeLeaf(e.index, e.recipient, commitments[i]))
   const root = buildMerkleRoot(leaves)
 

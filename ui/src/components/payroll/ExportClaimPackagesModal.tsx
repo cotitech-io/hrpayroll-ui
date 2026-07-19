@@ -1,5 +1,5 @@
 import { Modal } from '../ui/modal'
-import type { EmployerCampaign } from '../../hooks/useEmployerCampaigns'
+import type { OrganizationCampaign } from '../../hooks/useOrganizationCampaigns'
 import { withFacadeAddress } from '../../lib/claimPackage'
 import { ClaimPackagesTable } from './ClaimPackagesTable'
 
@@ -7,7 +7,7 @@ export function ExportClaimPackagesModal({
   campaign,
   onClose,
 }: {
-  campaign: EmployerCampaign | null
+  campaign: OrganizationCampaign | null
   onClose: () => void
 }) {
   return (

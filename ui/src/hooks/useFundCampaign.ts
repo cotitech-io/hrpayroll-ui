@@ -245,7 +245,7 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
     // The "Funded" column in List Payroll reads this same query — without invalidating it,
     // a successful fund only updates the on-chain state, not the already-fetched UI list.
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['employer-campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-campaigns'] })
     },
     onError: (error) => {
       log('mutation failed', error instanceof Error ? error.message : error)

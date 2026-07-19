@@ -56,7 +56,7 @@ export function EmployeePage() {
       >
         <summary style={{ cursor: 'pointer' }}>Advanced: paste claim-package JSON</summary>
         <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>
-          Only needed if you received a JSON file from your employer. Normal claims use the
+          Only needed if you received a JSON file from your organization. Normal claims use the
           list above — wallet + amount, no JSON.
         </p>
         <ClaimPackageInput onChange={(next) => setPkg(next)} />

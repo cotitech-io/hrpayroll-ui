@@ -1,12 +1,12 @@
 import { Modal } from '../ui/modal'
-import type { EmployerCampaign } from '../../hooks/useEmployerCampaigns'
+import type { OrganizationCampaign } from '../../hooks/useOrganizationCampaigns'
 import { FundCampaignForm } from './FundCampaignForm'
 
 export function FundCampaignModal({
   campaign,
   onClose,
 }: {
-  campaign: EmployerCampaign | null
+  campaign: OrganizationCampaign | null
   onClose: () => void
 }) {
   return (

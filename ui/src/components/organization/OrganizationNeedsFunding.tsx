@@ -4,13 +4,13 @@ import { AddressLink } from '../AddressLink'
 import { InlineError } from '../InlineError'
 import { ConnectPrompt } from '../ConnectPrompt'
 import { Button } from '../ui/button'
-import { useEmployerCampaigns, type EmployerCampaign } from '../../hooks/useEmployerCampaigns'
+import { useOrganizationCampaigns, type OrganizationCampaign } from '../../hooks/useOrganizationCampaigns'
 import { FundCampaignModal } from '../payroll/FundCampaignModal'
 
-export function EmployerNeedsFunding() {
+export function OrganizationNeedsFunding() {
   const { isConnected } = useAccount()
-  const { data: campaigns, isLoading, error } = useEmployerCampaigns()
-  const [fundingFor, setFundingFor] = useState<EmployerCampaign | null>(null)
+  const { data: campaigns, isLoading, error } = useOrganizationCampaigns()
+  const [fundingFor, setFundingFor] = useState<OrganizationCampaign | null>(null)
 
   if (!isConnected) {
     return <ConnectPrompt message="Connect a wallet to fund a payroll." />

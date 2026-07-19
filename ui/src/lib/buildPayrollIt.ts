@@ -100,7 +100,7 @@ export function buildClaimIt(params: {
   })
 }
 
-// Bound to (COTI PrivatePayrollCoti, registerLeaf) — the employer/admin calls registerLeaf
+// Bound to (COTI PrivatePayrollCoti, registerLeaf) — the organization/admin calls registerLeaf
 // directly on COTI to seed the per-index amount used later by verifyAndCredit; signed by
 // whichever wallet submits that call.
 export function buildRegisterLeafIt(params: {
@@ -119,7 +119,7 @@ export function buildRegisterLeafIt(params: {
   })
 }
 
-// Bound to (facade, ackPoolCredit) — the employer acknowledges an encrypted pToken transfer
+// Bound to (facade, ackPoolCredit) — the organization acknowledges an encrypted pToken transfer
 // they just made into the facade's pool, so the facade's internal pool ledger reflects it.
 export function buildAckPoolIt(params: {
   amount: bigint
@@ -139,7 +139,7 @@ export function buildAckPoolIt(params: {
 }
 
 // Bound to (COTI inbox, batchProcessRequests) — same binding as buildVerifyIt/buildPayoutIt;
-// named separately because it plays a different role (the employer's encrypted pToken.transfer
+// named separately because it plays a different role (the organization's encrypted pToken.transfer
 // amount when funding a campaign, not a claim-side amount).
 export function buildTransferIt(params: {
   amount: bigint

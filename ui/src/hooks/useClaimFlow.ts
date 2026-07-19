@@ -67,7 +67,7 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
       if (facadeBalance < inboxFeeWei) {
         throw new Error(
           `Campaign facade needs at least ${inboxFeeWei} wei AVAX for the claim inbox fee ` +
-            `(has ${facadeBalance}). Ask the employer to top up the facade with native AVAX.`,
+            `(has ${facadeBalance}). Ask the organization to top up the facade with native AVAX.`,
         )
       }
 
@@ -158,7 +158,7 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
           if (status === REQUEST_FAILED) {
             throw new Error(
               `COTI rejected this claim (vault payout request ${requestId} failed). ` +
-                'Usually a wrong amount or proof — check the amount matches what the employer registered.',
+                'Usually a wrong amount or proof — check the amount matches what the organization registered.',
             )
           }
           if (status === REQUEST_COMPLETED) {
