@@ -1,49 +1,84 @@
 export const PayrollCampaignFacadeAbi = [
   {
+    "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
-        "name": "admin_",
+        "name": "recipient",
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "comptroller_",
-        "type": "address"
-      },
-      {
+        "indexed": false,
         "internalType": "bytes32",
-        "name": "merkleRoot_",
+        "name": "amountCommitment",
         "type": "bytes32"
       },
       {
+        "indexed": true,
         "internalType": "address",
-        "name": "token_",
+        "name": "to",
         "type": "address"
       },
       {
-        "internalType": "uint40",
-        "name": "campaignStartTime_",
-        "type": "uint40"
+        "indexed": false,
+        "internalType": "bool",
+        "name": "viaSig",
+        "type": "bool"
+      }
+    ],
+    "name": "ClaimInstant",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "admin",
+        "type": "address"
       },
       {
-        "internalType": "uint40",
-        "name": "expiration_",
-        "type": "uint40"
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
       },
       {
-        "internalType": "string",
-        "name": "campaignName_",
-        "type": "string"
-      },
-      {
+        "indexed": false,
         "internalType": "uint256",
-        "name": "minFeeUSD_",
+        "name": "amount",
         "type": "uint256"
       }
     ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
+    "name": "Clawback",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "totalCredited",
+        "type": "uint256"
+      }
+    ],
+    "name": "PoolCredited",
+    "type": "event"
   },
   {
     "inputs": [
@@ -173,60 +208,54 @@ export const PayrollCampaignFacadeAbi = [
     "type": "error"
   },
   {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "index",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
         "internalType": "address",
-        "name": "recipient",
+        "name": "admin_",
         "type": "address"
       },
       {
-        "indexed": false,
+        "internalType": "address",
+        "name": "comptroller_",
+        "type": "address"
+      },
+      {
         "internalType": "bytes32",
-        "name": "amountCommitment",
+        "name": "merkleRoot_",
         "type": "bytes32"
       },
       {
-        "indexed": true,
         "internalType": "address",
-        "name": "to",
+        "name": "token_",
         "type": "address"
       },
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "viaSig",
-        "type": "bool"
+        "internalType": "uint40",
+        "name": "campaignStartTime_",
+        "type": "uint40"
+      },
+      {
+        "internalType": "uint40",
+        "name": "expiration_",
+        "type": "uint40"
+      },
+      {
+        "internalType": "string",
+        "name": "campaignName_",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minFeeUSD_",
+        "type": "uint256"
       }
     ],
-    "name": "ClaimInstant",
-    "type": "event"
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "admin",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      }
-    ],
-    "name": "Clawback",
-    "type": "event"
+    "stateMutability": "payable",
+    "type": "receive"
   },
   {
     "inputs": [],
@@ -304,43 +333,6 @@ export const PayrollCampaignFacadeAbi = [
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
-              },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "itAmount",
-        "type": "tuple"
-      }
-    ],
-    "name": "ackPoolCredit",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -539,62 +531,9 @@ export const PayrollCampaignFacadeAbi = [
         "type": "address"
       },
       {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
-              },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "itAmount",
-        "type": "tuple"
-      },
-      {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
-              },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "payoutItAmount",
-        "type": "tuple"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
     ],
     "name": "clawback",
@@ -687,6 +626,19 @@ export const PayrollCampaignFacadeAbi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "onPoolCredited",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "pTokenCallbackFeeWei",
     "outputs": [
@@ -720,33 +672,9 @@ export const PayrollCampaignFacadeAbi = [
         "type": "address"
       },
       {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
-              },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
+        "internalType": "uint256",
         "name": "amount",
-        "type": "tuple"
+        "type": "uint256"
       }
     ],
     "name": "payoutTo",
@@ -762,6 +690,19 @@ export const PayrollCampaignFacadeAbi = [
         "internalType": "contract PayrollVault",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "poolCreditedTotal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -807,6 +748,19 @@ export const PayrollCampaignFacadeAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "requestCreditPool",
+    "outputs": [],
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -864,9 +818,5 @@ export const PayrollCampaignFacadeAbi = [
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
-  },
-  {
-    "stateMutability": "payable",
-    "type": "receive"
   }
-] as const;
+] as const

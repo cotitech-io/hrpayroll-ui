@@ -1,170 +1,112 @@
 export const PodClaimStoreAbi = [
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "facade",
-        "type": "address"
+        internalType: 'address',
+        name: 'facade',
+        type: 'address',
       },
       {
-        "internalType": "uint256",
-        "name": "index",
-        "type": "uint256"
+        internalType: 'uint256',
+        name: 'index',
+        type: 'uint256',
       },
       {
-        "internalType": "address",
-        "name": "claimant",
-        "type": "address"
-      }
+        internalType: 'address',
+        name: 'claimant',
+        type: 'address',
+      },
     ],
-    "name": "consumePayload",
-    "outputs": [
+    name: 'consumePayload',
+    outputs: [
       {
-        "components": [
+        components: [
           {
-            "components": [
+            components: [
               {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
+                internalType: 'ctUint128',
+                name: 'ciphertextHigh',
+                type: 'uint256',
               },
               {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "itAmount",
-        "type": "tuple"
-      },
-      {
-        "internalType": "bytes",
-        "name": "proofHandle",
-        "type": "bytes"
-      },
-      {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
+                internalType: 'ctUint128',
+                name: 'ciphertextLow',
+                type: 'uint256',
               },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
             ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
+            internalType: 'struct ctUint256',
+            name: 'ciphertext',
+            type: 'tuple',
           },
           {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
+            internalType: 'bytes',
+            name: 'signature',
+            type: 'bytes',
+          },
         ],
-        "internalType": "struct itUint256",
-        "name": "payoutItAmount",
-        "type": "tuple"
-      }
+        internalType: 'struct itUint256',
+        name: 'itAmount',
+        type: 'tuple',
+      },
+      {
+        internalType: 'bytes',
+        name: 'proofHandle',
+        type: 'bytes',
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: 'nonpayable',
+    type: 'function',
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "facade",
-        "type": "address"
+        internalType: 'address',
+        name: 'facade',
+        type: 'address',
       },
       {
-        "internalType": "uint256",
-        "name": "index",
-        "type": "uint256"
+        internalType: 'uint256',
+        name: 'index',
+        type: 'uint256',
       },
       {
-        "components": [
+        components: [
           {
-            "components": [
+            components: [
               {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
+                internalType: 'ctUint128',
+                name: 'ciphertextHigh',
+                type: 'uint256',
               },
               {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "itAmount",
-        "type": "tuple"
-      },
-      {
-        "internalType": "bytes",
-        "name": "proofHandle",
-        "type": "bytes"
-      },
-      {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
+                internalType: 'ctUint128',
+                name: 'ciphertextLow',
+                type: 'uint256',
               },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
             ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
+            internalType: 'struct ctUint256',
+            name: 'ciphertext',
+            type: 'tuple',
           },
           {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
+            internalType: 'bytes',
+            name: 'signature',
+            type: 'bytes',
+          },
         ],
-        "internalType": "struct itUint256",
-        "name": "payoutItAmount",
-        "type": "tuple"
-      }
+        internalType: 'struct itUint256',
+        name: 'itAmount',
+        type: 'tuple',
+      },
+      {
+        internalType: 'bytes',
+        name: 'proofHandle',
+        type: 'bytes',
+      },
     ],
-    "name": "submitPayload",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-] as const;
+    name: 'submitPayload',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+] as const

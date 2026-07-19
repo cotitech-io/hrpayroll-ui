@@ -11,7 +11,12 @@ export function ExportClaimPackagesModal({
   onClose: () => void
 }) {
   return (
-    <Modal open={!!campaign} onClose={onClose} title={`Claim packages — ${campaign?.campaignName ?? ''}`}>
+    <Modal
+      open={!!campaign}
+      onClose={onClose}
+      title={`Claim packages — ${campaign?.campaignName ?? ''}`}
+      width="720px"
+    >
       {campaign && (
         <ClaimPackagesTable
           packages={campaign.packages.map((pkg) => withFacadeAddress(pkg, campaign.facadeAddress))}

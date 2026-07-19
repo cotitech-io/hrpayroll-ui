@@ -70,3 +70,11 @@ export function downloadClaimPackage(pkg: ClaimPackage, campaignName: string): v
   a.click()
   URL.revokeObjectURL(url)
 }
+
+export function claimPackageJson(pkg: ClaimPackage): string {
+  return JSON.stringify(pkg, null, 2)
+}
+
+export async function copyClaimPackage(pkg: ClaimPackage): Promise<void> {
+  await navigator.clipboard.writeText(claimPackageJson(pkg))
+}

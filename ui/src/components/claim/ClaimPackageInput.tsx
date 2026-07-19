@@ -1,24 +1,47 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { parseClaimPackage, type ClaimPackage } from '../../lib/claimPackage'
 import { InlineError } from '../InlineError'
 
 /** Paste-a-claim-package textarea; emits the parsed package (or null) upward. */
-export function ClaimPackageInput({ onChange }: { onChange: (pkg: ClaimPackage | null) => void }) {
-  const [text, setText] = useState('')
+export function ClaimPackageInput({
+  value,
+  onChange,
+}: {
+  /** Controlled textarea text (e.g. after Copy from the campaign modal). */
+  value?: string
+  onChange: (pkg: ClaimPackage | null, raw?: string) => void
+}) {
+  const [text, setText] = useState(value ?? '')
   const [parseError, setParseError] = useState<string | null>(null)
 
-  function handleChange(value: string) {
-    setText(value)
-    if (!value.trim()) {
-      onChange(null)
+  useEffect(() => {
+    if (value !== undefined && value !== text) {
+      setText(value)
+      if (!value.trim()) {
+        setParseError(null)
+        return
+      }
+      try {
+        parseClaimPackage(value)
+        setParseError(null)
+      } catch (e) {
+        setParseError(e instanceof Error ? e.message : String(e))
+      }
+    }
+  }, [value])
+
+  function handleChange(next: string) {
+    setText(next)
+    if (!next.trim()) {
+      onChange(null, next)
       setParseError(null)
       return
     }
     try {
-      onChange(parseClaimPackage(value))
+      onChange(parseClaimPackage(next), next)
       setParseError(null)
     } catch (e) {
-      onChange(null)
+      onChange(null, next)
       setParseError(e instanceof Error ? e.message : String(e))
     }
   }

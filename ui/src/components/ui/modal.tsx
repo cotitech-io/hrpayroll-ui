@@ -6,6 +6,7 @@ export function Modal({
   title,
   children,
   dismissable = true,
+  width = '480px',
 }: {
   open: boolean
   onClose: () => void
@@ -13,6 +14,8 @@ export function Modal({
   children: ReactNode
   /** When false, the backdrop and × are inert — used while a process must run to completion. */
   dismissable?: boolean
+  /** CSS width for the dialog panel (still capped at 100%). */
+  width?: string
 }) {
   if (!open) return null
 
@@ -35,7 +38,7 @@ export function Modal({
     >
       <div
         className="bg-card border border-border rounded-lg"
-        style={{ width: '480px', maxWidth: '100%', padding: '1.5rem' }}
+        style={{ width, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', padding: '1.5rem' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>

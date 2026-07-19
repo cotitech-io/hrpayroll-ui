@@ -5,7 +5,7 @@ import { Button } from '../ui/button'
 import { useFundCampaign } from '../../hooks/useFundCampaign'
 import { PTOKEN_DECIMALS } from '../../lib/format'
 
-// 0.1 AVAX reserve for the facade's own future inbox fees (ack/clawback round trips).
+// 0.1 AVAX reserve for the facade's own future inbox fees (claim/clawback round trips).
 const DEFAULT_FACADE_ETH_TOPUP_WEI = 100_000_000_000_000_000n
 
 /** Amount input + fund button + stage/error feedback, shared by the list modal and the post-deploy step. */

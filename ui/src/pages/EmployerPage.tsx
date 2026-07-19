@@ -56,7 +56,7 @@ export function EmployerPage() {
         <CampaignDeployedSummary
           result={result}
           campaignName={deployedName}
-          canFund={isUnlocked}
+          canFund={true}
           onReset={() => setResult(null)}
         />
       )}

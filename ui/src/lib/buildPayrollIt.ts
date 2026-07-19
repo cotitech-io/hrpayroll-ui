@@ -61,8 +61,9 @@ export function buildVerifyIt(params: {
   })
 }
 
-// Bound to the same (COTI inbox, batchProcessRequests) pair — the amount credited to the
-// claimant's pToken balance once verification succeeds.
+// Deprecated for iter08 claims — ClaimStore no longer stores a payout IT; COTI returns a
+// public amount in onPayoutAuthorized and the facade does payoutTo(to, uint256). Kept only
+// if an older flow still imports it.
 export function buildPayoutIt(params: {
   amount: bigint
   aesKey: string

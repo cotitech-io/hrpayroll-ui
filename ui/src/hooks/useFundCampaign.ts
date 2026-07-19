@@ -1,10 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAbiItem, type Hex } from 'viem'
-import { useAccount, usePublicClient, useSendTransaction, useSignMessage, useWriteContract } from 'wagmi'
-import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
+import { useAccount, usePublicClient, useSendTransaction, useWriteContract } from 'wagmi'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
-import { buildAckPoolIt } from '../lib/buildPayrollIt'
-import { computePTokenTwoWayFees, FUJI_MPC_IT_GAS } from '../lib/podFees'
+import { computePTokenTwoWayFees } from '../lib/podFees'
 
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 300_000
@@ -12,7 +10,7 @@ const POLL_TIMEOUT_MS = 300_000
 export type FundCampaignParams = {
   facadeAddress: Hex
   amount: bigint
-  /** Native AVAX to top up the facade with, covering its own future inbox-fee spend (ack/clawback). 0 to skip. */
+  /** Native AVAX to top up the facade with, covering its own future inbox-fee spend. 0 to skip. */
   facadeEthTopUpWei?: bigint
 }
 
@@ -24,8 +22,6 @@ function log(...args: unknown[]) {
 
 export function useFundCampaign(onStage?: (stage: string) => void) {
   const { address } = useAccount()
-  const { sessionAesKey } = usePrivacyBridgeUnlock()
-  const { signMessageAsync } = useSignMessage()
   const { writeContractAsync } = useWriteContract()
   const { sendTransactionAsync } = useSendTransaction()
   const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
@@ -41,10 +37,13 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
       log('starting', { facadeAddress: params.facadeAddress, amount: params.amount.toString() })
 
       if (!address) throw new Error('Connect a wallet first.')
-      if (!sessionAesKey) throw new Error('Unlock private access first.')
       if (!publicClient) throw new Error('No Avalanche Fuji client available.')
 
       const { pToken } = avaxContracts
+      const facade = {
+        address: params.facadeAddress,
+        abi: avaxContracts.payrollCampaignFacade.abi,
+      } as const
 
       // The `pending` flag reflects the *sender's* in-flight balance, not the receiver's —
       // the facade (as a pure receiver here) never actually goes pending itself, so checking
@@ -68,8 +67,7 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
       // Hard failure, not a warning: PodERC20 reverts TransferAlreadyPending while the flag is
       // set, so proceeding is a guaranteed on-chain revert that just burns gas. A flag stuck
       // longer than this window usually means a previous transfer's COTI callback was never
-      // delivered (seen live 2026-07-17: an encode-failed request left the account locked
-      // with no user-side recovery) — only inbox infra can clear it.
+      // delivered — only inbox infra can clear it.
       if (!preIdle) {
         throw new Error(
           'Your pToken account still has a pending transfer from an earlier operation, so any new ' +
@@ -110,8 +108,7 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
 
       // Wait for the actual async result — a completed `Transfer` (success) or `TransferFailed`
       // (failure) event — instead of a balance-pending flag, which never reflects the
-      // *receiver's* in-flight state and would let a failed transfer silently fall through to
-      // ackPoolCredit as if it had succeeded.
+      // *receiver's* in-flight state.
       stage('Waiting for COTI to credit the facade…')
       const settleStart = Date.now()
       const deadline1 = settleStart + POLL_TIMEOUT_MS
@@ -150,9 +147,6 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
             break
           }
         } catch (e) {
-          // Surface RPC hiccups (e.g. a fallback endpoint rejecting the query) instead of
-          // letting them look identical to "still pending" — this is the difference between
-          // a genuinely slow COTI round trip and an RPC-layer failure.
           log('settle poll error (will keep polling until timeout)', e instanceof Error ? e.message : e)
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
@@ -166,27 +160,73 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         )
       }
 
-      stage('Acknowledging pool credit…')
-      const ackIt = await buildAckPoolIt({
-        amount: params.amount,
-        aesKey: sessionAesKey,
-        signerAddress: address,
-        facadeAddress: params.facadeAddress,
-        signMessageAsync,
+      // iter08: credit the COTI pool via inbox — no local MpcCore / ackPoolCredit on Fuji.
+      stage('Requesting COTI pool credit…')
+      const creditedBefore = await publicClient.readContract({
+        ...facade,
+        functionName: 'poolCreditedTotal',
       })
-      const ackHash = await writeContractAsync({
-        address: params.facadeAddress,
-        abi: avaxContracts.payrollCampaignFacade.abi,
-        functionName: 'ackPoolCredit',
-        args: [ackIt],
-        gas: FUJI_MPC_IT_GAS,
+      const inboxFeeWei = await publicClient.readContract({
+        ...facade,
+        functionName: 'inboxFeeWei',
+      })
+      log('requestCreditPool', {
+        amount: params.amount.toString(),
+        inboxFeeWei: inboxFeeWei.toString(),
+        creditedBefore: creditedBefore.toString(),
+      })
+      const creditHash = await writeContractAsync({
+        ...facade,
+        functionName: 'requestCreditPool',
+        args: [params.amount],
+        value: inboxFeeWei,
         chainId: AVAX_CHAIN_ID,
       })
-      log('ackPoolCredit tx submitted', { ackHash })
-      const ackReceipt = await publicClient.waitForTransactionReceipt({ hash: ackHash })
-      log('ackPoolCredit tx mined', { status: ackReceipt.status })
-      if (ackReceipt.status !== 'success') {
-        throw new Error(`ackPoolCredit reverted on-chain (tx ${ackHash}).`)
+      log('requestCreditPool tx submitted', { creditHash })
+      const creditReceipt = await publicClient.waitForTransactionReceipt({ hash: creditHash })
+      log('requestCreditPool tx mined', { status: creditReceipt.status })
+      if (creditReceipt.status !== 'success') {
+        throw new Error(`requestCreditPool reverted on-chain (tx ${creditHash}).`)
+      }
+
+      stage('Waiting for COTI pool credit callback…')
+      const creditStart = Date.now()
+      const deadline2 = creditStart + POLL_TIMEOUT_MS
+      let credited = false
+      let creditPoll = 0
+      while (Date.now() < deadline2) {
+        creditPoll += 1
+        try {
+          const [total, poolLogs] = await Promise.all([
+            publicClient.readContract({ ...facade, functionName: 'poolCreditedTotal' }),
+            publicClient.getLogs({
+              address: params.facadeAddress,
+              event: getAbiItem({ abi: facade.abi, name: 'PoolCredited' }),
+              fromBlock: creditReceipt.blockNumber,
+            }),
+          ])
+          log('credit poll', {
+            creditPoll,
+            elapsedMs: Date.now() - creditStart,
+            poolCreditedTotal: total.toString(),
+            poolLogsFound: poolLogs.length,
+          })
+          if (total >= creditedBefore + params.amount || poolLogs.length > 0) {
+            credited = true
+            break
+          }
+        } catch (e) {
+          log('credit poll error (will keep polling until timeout)', e instanceof Error ? e.message : e)
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+      }
+      if (!credited) {
+        log('TIMED OUT waiting for pool credit', { creditPoll, elapsedMs: Date.now() - creditStart, creditHash })
+        throw new Error(
+          `Timed out waiting for COTI to credit the campaign pool (tx ${creditHash}, waited ${Math.round(
+            (Date.now() - creditStart) / 1000,
+          )}s). Check the console for [useFundCampaign] logs.`,
+        )
       }
 
       if (params.facadeEthTopUpWei && params.facadeEthTopUpWei > 0n) {

@@ -1,8 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { concatHex, keccak256, toHex, zeroAddress, type Hex } from 'viem'
+import { concatHex, getAbiItem, keccak256, toHex, zeroAddress, type Hex } from 'viem'
 import { avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
-import { buildAckPoolIt } from '../../src/lib/buildPayrollIt'
-import { computePTokenTwoWayFees, FUJI_MPC_IT_GAS } from '../../src/lib/podFees'
+import { computePTokenTwoWayFees } from '../../src/lib/podFees'
 import type { RosterEntry } from '../../src/lib/merkle'
 import {
   PMTT,
@@ -20,7 +19,8 @@ import {
 } from './helpers'
 
 // End-to-end campaign FUNDING against the real networks, mirroring useFundCampaign:
-// portal-seed pToken → public transfer into the facade → settle → ackPoolCredit.
+// portal-seed pToken → public transfer into the facade → settle → requestCreditPool →
+// wait for PoolCredited / poolCreditedTotal (iter08-thin-fuji-facade).
 // Budget: 500 of PRIVATE_KEY3's tokens per run, distributed to the two roster accounts
 // below (250 pMTT each).
 //
@@ -32,25 +32,16 @@ import {
 // testnet (callback never lands), so the fund path matches the mint path: plaintext
 // amount on the wire, private balances still garbled on-chain.
 //
-// ackPoolCredit findings (live Fuji, 2026-07-19 — see ui/docs/fundCampaign.md):
-//   • Portal mint + public transfer settle OK; facade holds pTokens.
-//   • ackPoolCredit reverts because MpcCore compiles into calls on MPC_PRECOMPILE
-//     (address 0x64) and live Fuji has NO code there (eth_getCode → 0x): Solidity's
-//     extcodesize guard reverts (~28k gas) before the IT is ever read. Proven via
-//     eth_call state override — a garbage IT succeeds once mock code sits at 0x64.
-//   • Not a key/registration bug: the .env AES key is correct (validates ITs on COTI);
-//     the same call fails for any IT/signer. simCOTI only passes because
-//     SimExtendedOperations is planted at 0x64 (registerUserOnDualSim).
-//   • claim/clawback (_deductPool) hit 0x64 too — a facade redesign (COTI-side pool via
-//     the PoD inbox) is required for live; see the fix options in the doc.
+// iter08 (2026-07-19): ackPoolCredit / local Fuji MpcCore at 0x64 are gone. After settle,
+// the campaign admin calls requestCreditPool(amount) with inboxFeeWei; COTI creditPool
+// callbacks onPoolCredited and increments poolCreditedTotal.
 //
 // If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
 // Requires in the repo-root .env (helpers load ../../../.env — not ui/.env.local):
 //   PRIVATE_KEY3              — employer/admin; PrivatePayrollCoti owner; pays the 500 MTT
 //                               seed and the funder's one-time gas top-ups.
-//   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's AES key (COTI onboard; also used for Fuji
-//                               ack IT + decrypting Fuji pToken balances).
+//   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's AES key (COTI onboard + decrypt Fuji pToken).
 //   PAYROLL_TEST_FUNDER_SALT  — optional; rotates the derived funder account (default v4).
 //   PRIVATE_AES_KEY_FUNDER_<SALT>_TESTNET — optional pin for the funder's AES key.
 
@@ -101,7 +92,7 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     funderAesKey = await resolveAesKey(`PRIVATE_AES_KEY_FUNDER_${FUNDER_SALT.toUpperCase()}_TESTNET`, funderKey!)
   })
 
-  it('seeds the funder via portal deposit, funds the campaign, and acks the pool credit', async () => {
+  it('seeds the funder via portal deposit, funds the campaign, and credits the COTI pool', async () => {
     const { fujiPublic } = employer
 
     // Preflights — each failure here names the real blocker instead of dying mid-flow.
@@ -215,42 +206,56 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       label: 'fund transfer to facade',
     })
 
-    // ackPoolCredit: employer/admin signs+submits (not the ephemeral funder). AES comes
-    // from PRIVATE_AES_KEY_TESTNET (.env) — same key as COTI; do not substitute another.
-    expect(employerAesKey, 'employer AES must be pinned/recovered as PRIVATE_AES_KEY_TESTNET').toBeTruthy()
-    expect(employerAesKey.length, 'PRIVATE_AES_KEY_TESTNET should be 32 hex chars (16-byte AES)').toBe(32)
-    console.info(
-      `[testnet] ackPoolCredit IT with .env AES (len=${employerAesKey.length} prefix=${employerAesKey.slice(0, 8)}…) ` +
-        `employer=${employer.account.address} facade=${campaign.facadeAddress}`,
-    )
-    const ackIt = await buildAckPoolIt({
-      amount: FUND_TOTAL,
-      aesKey: employerAesKey,
-      signerAddress: employer.account.address as Hex,
-      facadeAddress: campaign.facadeAddress,
-      signMessageAsync: employer.signMessageAsync,
-    })
-    // Explicit gas: eth_estimateGas rejects this call because it genuinely reverts on
-    // live Fuji (no code at 0x64); the explicit limit surfaces the revert on-chain.
-    const ackHash = await employer.fujiWallet.writeContract({
+    // requestCreditPool: campaign admin (employer) pays inboxFeeWei; COTI creditPool
+    // callbacks onPoolCredited. No local AES IT / MpcCore on Fuji (iter08).
+    const facade = {
       address: campaign.facadeAddress,
       abi: avaxContracts.payrollCampaignFacade.abi,
-      functionName: 'ackPoolCredit',
-      args: [ackIt],
-      gas: FUJI_MPC_IT_GAS,
+    } as const
+    const creditedBefore = await fujiPublic.readContract({
+      ...facade,
+      functionName: 'poolCreditedTotal',
     })
-    const ackReceipt = await fujiPublic.waitForTransactionReceipt({ hash: ackHash })
+    const inboxFeeWei = await fujiPublic.readContract({
+      ...facade,
+      functionName: 'inboxFeeWei',
+    })
+    console.info(
+      `[testnet] requestCreditPool amount=${FUND_TOTAL} inboxFeeWei=${inboxFeeWei} ` +
+        `employer=${employer.account.address} facade=${campaign.facadeAddress}`,
+    )
+    const creditHash = await employer.fujiWallet.writeContract({
+      ...facade,
+      functionName: 'requestCreditPool',
+      args: [FUND_TOTAL],
+      value: inboxFeeWei,
+    })
+    const creditReceipt = await fujiPublic.waitForTransactionReceipt({ hash: creditHash })
+    expect(creditReceipt.status, `requestCreditPool reverted (tx ${creditHash})`).toBe('success')
+
+    const creditDeadline = Date.now() + 300_000
+    let poolCredited = false
+    while (Date.now() < creditDeadline) {
+      const [total, poolLogs] = await Promise.all([
+        fujiPublic.readContract({ ...facade, functionName: 'poolCreditedTotal' }),
+        fujiPublic.getLogs({
+          address: campaign.facadeAddress,
+          event: getAbiItem({ abi: facade.abi, name: 'PoolCredited' }),
+          fromBlock: creditReceipt.blockNumber,
+        }),
+      ])
+      if (total >= creditedBefore + FUND_TOTAL || poolLogs.length > 0) {
+        poolCredited = true
+        console.info(`[testnet] pool credited: poolCreditedTotal=${total} logs=${poolLogs.length}`)
+        break
+      }
+      await new Promise((r) => setTimeout(r, 3_000))
+    }
     expect(
-      ackReceipt.status,
-      `ackPoolCredit reverted (tx ${ackHash}, gasUsed=${ackReceipt.gasUsed}). ` +
-        'Expected on live Fuji: MpcCore compiles into calls on address 0x64 (MPC_PRECOMPILE) and ' +
-        'Fuji has no code at that address, so the extcodesize guard reverts (~28k gas) before the ' +
-        'IT is even read. Not a key/registration bug — the .env AES key is correct and validates ' +
-        'ITs on COTI. Ack can only pass where 0x64 answers (simCOTI, or a Fuji fork with setCode ' +
-        'at 0x64) or after the facade redesign routes pool credit through the COTI inbox. Portal ' +
-        'mint + public pToken transfer to the facade already settled; only the encrypted pool ' +
-        'ledger ack is blocked. See ui/docs/fundCampaign.md.',
-    ).toBe('success')
+      poolCredited,
+      `Timed out waiting for PoolCredited after requestCreditPool (tx ${creditHash}). ` +
+        'See ui/docs/fundCampaign.md.',
+    ).toBe(true)
 
     // 4. The funder spent exactly the seeded budget — nothing more, nothing less.
     const { balance: funderAfter, pending: funderAfterPending } = await decryptPMttBalance(
@@ -262,7 +267,8 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     expect(funderAfter, 'funder net pMTT change').toBe(funderBefore)
 
     console.info(
-      `[testnet] campaign funded: facade=${campaign.facadeAddress} runId=${campaign.runId} amount=500 pMTT ack=${ackHash}`,
+      `[testnet] campaign funded: facade=${campaign.facadeAddress} runId=${campaign.runId} ` +
+        `amount=500 pMTT requestCreditPool=${creditHash}`,
     )
   })
 })

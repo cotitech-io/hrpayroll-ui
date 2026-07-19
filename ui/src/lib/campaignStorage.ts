@@ -39,3 +39,7 @@ export function saveCampaign(campaign: StoredCampaign): void {
 export function loadCampaign(facadeAddress: Hex): StoredCampaign | null {
   return readStore()[facadeAddress.toLowerCase()] ?? null
 }
+
+export function listStoredCampaigns(): StoredCampaign[] {
+  return Object.values(readStore())
+}

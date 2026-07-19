@@ -9,7 +9,9 @@ function describeEvent(e: ActivityEvent): string {
     case 'PayoutRequested':
       return `Claim submitted — run #${e.runId}, index ${e.index} (pending verify)`
     case 'PayoutCompleted':
-      return `Payout completed — run #${e.runId}, index ${e.index}, to ${shortAddr(e.to)}`
+      return `Payout completed — run #${e.runId}, index ${e.index}, to ${shortAddr(e.to)}${
+        e.amount !== undefined ? `, amount ${e.amount.toString()}` : ''
+      }`
     case 'PayoutFailed':
       return `Payout failed — run #${e.runId}, index ${e.index} (error code ${e.errorCode})`
     case 'ClaimInstant':

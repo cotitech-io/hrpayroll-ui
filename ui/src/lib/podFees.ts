@@ -14,7 +14,7 @@ const pad5Percent = (x: bigint) => x + x / 20n + 1n
 export const COTI_REGISTER_LEAF_GAS = 3_000_000n
 
 // Same class of call as COTI registerLeaf: MpcCore.validateCiphertext is invisible to
-// eth_estimateGas on Fuji, so ackPoolCredit / claim IT entrypoints need an explicit limit.
+// eth_estimateGas on Fuji for some IT entrypoints still needs an explicit limit (e.g. claim).
 export const FUJI_MPC_IT_GAS = 3_000_000n
 
 // Generic pToken two-way message (transfer/mint/sync round trip): same calldata/exec-gas

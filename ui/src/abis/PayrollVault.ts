@@ -134,6 +134,12 @@ export const PayrollVaultAbi = [
         "internalType": "address",
         "name": "to",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
     ],
     "name": "PayoutCompleted",
@@ -493,35 +499,6 @@ export const PayrollVaultAbi = [
         "internalType": "bytes",
         "name": "proofHandle",
         "type": "bytes"
-      },
-      {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextHigh",
-                "type": "uint256"
-              },
-              {
-                "internalType": "ctUint128",
-                "name": "ciphertextLow",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct ctUint256",
-            "name": "ciphertext",
-            "type": "tuple"
-          },
-          {
-            "internalType": "bytes",
-            "name": "signature",
-            "type": "bytes"
-          }
-        ],
-        "internalType": "struct itUint256",
-        "name": "payoutItAmount",
-        "type": "tuple"
       },
       {
         "internalType": "uint256",

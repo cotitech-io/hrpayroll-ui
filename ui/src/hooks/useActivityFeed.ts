@@ -7,10 +7,10 @@ import { avaxContracts } from '../config/contracts'
 export type ActivityEvent =
   | { type: 'RunCreated'; blockNumber: bigint; logIndex: number; runId: bigint; eligibilityRoot: `0x${string}`; payoutToken: `0x${string}` }
   | { type: 'PayoutRequested'; blockNumber: bigint; logIndex: number; requestId: `0x${string}`; runId: bigint; index: bigint }
-  | { type: 'PayoutCompleted'; blockNumber: bigint; logIndex: number; requestId: `0x${string}`; runId: bigint; index: bigint; to: `0x${string}` }
+  | { type: 'PayoutCompleted'; blockNumber: bigint; logIndex: number; requestId: `0x${string}`; runId: bigint; index: bigint; to: `0x${string}`; amount?: bigint }
   | { type: 'PayoutFailed'; blockNumber: bigint; logIndex: number; requestId: `0x${string}`; runId: bigint; index: bigint; errorCode: bigint }
   | { type: 'ClaimInstant'; blockNumber: bigint; logIndex: number; facade: Hex; index: bigint; recipient: `0x${string}`; amountCommitment: `0x${string}`; to: `0x${string}` }
-  | { type: 'Clawback'; blockNumber: bigint; logIndex: number; facade: Hex; admin: `0x${string}`; to: `0x${string}` }
+  | { type: 'Clawback'; blockNumber: bigint; logIndex: number; facade: Hex; admin: `0x${string}`; to: `0x${string}`; amount?: bigint }
 
 async function listCampaignFacades(): Promise<Hex[]> {
   const { payrollVault } = avaxContracts

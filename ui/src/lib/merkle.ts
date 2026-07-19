@@ -117,3 +117,25 @@ export function buildPayrollMerkleTree(entries: RosterEntry[], employerAesKey: s
 
   return { root, entries: sorted, packages }
 }
+
+/** Rebuild claim packages from on-chain commitments + known plaintext amounts.
+ * Proofs only need (index, recipient, amountCommitment); amounts are for the claim IT. */
+export function rebuildClaimPackagesFromCommitments(
+  entries: Array<{
+    index: number
+    recipient: Address
+    amountCommitment: Hex
+    amount: bigint
+  }>,
+): MerklePackage[] {
+  const sorted = [...entries].sort((a, b) => a.index - b.index)
+  const leaves = sorted.map((e) => encodeLeaf(e.index, e.recipient, e.amountCommitment))
+  return sorted.map((entry, i) => ({
+    index: entry.index,
+    recipient: entry.recipient,
+    amount: entry.amount,
+    amountCommitment: entry.amountCommitment,
+    leaf: leaves[i],
+    proof: buildProof(leaves, i),
+  }))
+}
