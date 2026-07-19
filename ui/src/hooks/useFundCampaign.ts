@@ -65,7 +65,19 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
       }
-      if (!preIdle) log('WARNING: sender balance still pending after timeout — proceeding anyway')
+      // Hard failure, not a warning: PodERC20 reverts TransferAlreadyPending while the flag is
+      // set, so proceeding is a guaranteed on-chain revert that just burns gas. A flag stuck
+      // longer than this window usually means a previous transfer's COTI callback was never
+      // delivered (seen live 2026-07-17: an encode-failed request left the account locked
+      // with no user-side recovery) — only inbox infra can clear it.
+      if (!preIdle) {
+        throw new Error(
+          'Your pToken account still has a pending transfer from an earlier operation, so any new ' +
+            'transfer would revert on-chain (TransferAlreadyPending). If this persists for more than a few ' +
+            'minutes, that earlier transfer’s cross-chain callback was likely lost and the account stays ' +
+            'locked until the PoD inbox operators redeliver it.',
+        )
+      }
 
       stage('Computing inbox fees…')
       const { pTokenTransferFeeWei, pTokenCallbackFeeWei } = await computePTokenTwoWayFees(publicClient)
