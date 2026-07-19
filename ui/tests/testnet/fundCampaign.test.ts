@@ -33,14 +33,16 @@ import {
 // amount on the wire, private balances still garbled on-chain.
 //
 // ackPoolCredit findings (live Fuji, 2026-07-19 — see ui/docs/fundCampaign.md):
-//   • Employer IT is built with PRIVATE_AES_KEY_TESTNET from repo-root .env — the same
-//     AES key as COTI AccountOnboard. There is no separate Fuji AES secret.
 //   • Portal mint + public transfer settle OK; facade holds pTokens.
-//   • ackPoolCredit still reverts at Fuji MpcCore.validateCiphertext (~28k gas), e.g.
-//     facade 0x5016E770… / retry tx 0x63d21cd3… with the pinned .env key.
-//   • Root cause is missing Fuji MPC user registration for that same key (coti-ethers
-//     generateOrRecoverAes on the Fuji RPC → "unable to onboard user"), not a wrong
-//     .env value, wrong selector, or wrong signer. simCOTI works via registerUserOnDualSim.
+//   • ackPoolCredit reverts because MpcCore compiles into calls on MPC_PRECOMPILE
+//     (address 0x64) and live Fuji has NO code there (eth_getCode → 0x): Solidity's
+//     extcodesize guard reverts (~28k gas) before the IT is ever read. Proven via
+//     eth_call state override — a garbage IT succeeds once mock code sits at 0x64.
+//   • Not a key/registration bug: the .env AES key is correct (validates ITs on COTI);
+//     the same call fails for any IT/signer. simCOTI only passes because
+//     SimExtendedOperations is planted at 0x64 (registerUserOnDualSim).
+//   • claim/clawback (_deductPool) hit 0x64 too — a facade redesign (COTI-side pool via
+//     the PoD inbox) is required for live; see the fix options in the doc.
 //
 // If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
@@ -228,8 +230,8 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       facadeAddress: campaign.facadeAddress,
       signMessageAsync: employer.signMessageAsync,
     })
-    // Explicit gas: Fuji eth_estimateGas cannot model MpcCore.validateCiphertext (same
-    // class of call as COTI registerLeaf).
+    // Explicit gas: eth_estimateGas rejects this call because it genuinely reverts on
+    // live Fuji (no code at 0x64); the explicit limit surfaces the revert on-chain.
     const ackHash = await employer.fujiWallet.writeContract({
       address: campaign.facadeAddress,
       abi: avaxContracts.payrollCampaignFacade.abi,
@@ -241,12 +243,13 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     expect(
       ackReceipt.status,
       `ackPoolCredit reverted (tx ${ackHash}, gasUsed=${ackReceipt.gasUsed}). ` +
-        'Fuji MpcCore.validateCiphertext rejected the employer IT built with PRIVATE_AES_KEY_TESTNET ' +
-        'from .env (same AES as COTI — confirmed; not a wrong-key bug). Live Fuji has no MPC user ' +
-        'registration for that key (coti-ethers generateOrRecoverAes on Fuji RPC → "unable to onboard ' +
-        'user"); ~28k gasUsed is the typical immediate ValidateCiphertext fail. Portal mint + public ' +
-        'pToken transfer to the facade already settled; only the encrypted pool ledger ack is blocked. ' +
-        'See ui/docs/fundCampaign.md.',
+        'Expected on live Fuji: MpcCore compiles into calls on address 0x64 (MPC_PRECOMPILE) and ' +
+        'Fuji has no code at that address, so the extcodesize guard reverts (~28k gas) before the ' +
+        'IT is even read. Not a key/registration bug — the .env AES key is correct and validates ' +
+        'ITs on COTI. Ack can only pass where 0x64 answers (simCOTI, or a Fuji fork with setCode ' +
+        'at 0x64) or after the facade redesign routes pool credit through the COTI inbox. Portal ' +
+        'mint + public pToken transfer to the facade already settled; only the encrypted pool ' +
+        'ledger ack is blocked. See ui/docs/fundCampaign.md.',
     ).toBe('success')
 
     // 4. The funder spent exactly the seeded budget — nothing more, nothing less.

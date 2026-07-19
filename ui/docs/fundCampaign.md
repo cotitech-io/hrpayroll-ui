@@ -17,7 +17,7 @@ Funding a PoD campaign is **two different ledgers**, not one transfer:
 2. **Encrypted pool ledger `_poolBalanceCt` on the facade** — what `claim` / `clawback`
    actually debit via `_deductPool`. This is **not** filled by the pToken transfer. The
    employer must call `ackPoolCredit(itUint256)`, which runs
-   `MpcCore.validateCiphertext` **on Avalanche Fuji** and stores a network-key ciphertext.
+   `MpcCore.validateCiphertext` **locally on Avalanche Fuji**.
 
 ```mermaid
 flowchart LR
@@ -26,54 +26,77 @@ flowchart LR
   end
   subgraph broken [Blocked on live Fuji]
     A[ackPoolCredit IT]
-    V[Fuji ValidateCiphertext]
+    V[Call to 0x64 precompile]
     P["_poolBalanceCt = funded"]
     C[claim can deduct pool]
   end
   T --> A --> V --> P --> C
 ```
 
-**What breaks:** step `ackPoolCredit` → Fuji `ValidateCiphertext` reverts immediately
-(~28k gas). The facade holds tokens, but `_poolBalanceCt` stays empty, so later claims hit
-`InsufficientPoolBalance`.
+**What breaks — root cause (2026-07-19, proven on-chain):** every `MpcCore` operation
+compiles into a high-level Solidity call to `ExtendedOperations(address(0x64))`
+(`MPC_PRECOMPILE` in `MpcInterface.sol`). That address is a gcEVM precompile that only
+exists on COTI's chain. On live Fuji, `eth_getCode(0x…64)` returns `0x` — **there is no
+code at that address at all** — so Solidity's extcodesize guard reverts the call
+immediately (~28k gas: 21k base + calldata + dispatch up to the first external call),
+*before* the ciphertext, signature, or any notion of user registration is ever read.
 
-**Why (and what is *not* wrong):** the AES key in repo-root `.env`
-(`PRIVATE_AES_KEY_TESTNET`) **is** the correct key. Fund/ack already builds the IT with
-that same value via `buildAckPoolIt({ aesKey: employerAesKey, … })`. There is no second
-Fuji-only AES secret to put in `.env`.
+**Proof (reproducible, see "How to verify"):** a plain `eth_call` of `ackPoolCredit` on
+the live facade with a **garbage** IT (`high=1, low=2, sig=0x1111…`) reverts with empty
+data. The *identical* call with an `eth_call` state override placing 15 bytes of mock
+code at `0x64` **succeeds**. The only variable is code existing at 0x64 — no AES key, IT
+format, signer, or MPC-registration change can ever make the live call pass.
 
-Having the key locally is not enough. `ValidateCiphertext` on Fuji asks the **Fuji MPC
-node** whether this account’s user key is registered for client-chain IT validation. We
-only completed AccountOnboard on **COTI** testnet (that is where
-`PRIVATE_AES_KEY_TESTNET` came from). Fuji has no working onboard path today, so the
-*same* key encrypts a valid-looking IT that Fuji still rejects.
+**What is *not* wrong** (all previously suspected): `.env` `PRIVATE_AES_KEY_TESTNET` is
+the correct key (its ITs validate fine on COTI), the IT shape matches the pod reference
+(`ackPoolCredit(((uint256,uint256),bytes))`), the employer signs, `FUJI_MPC_IT_GAS` is
+set. The earlier root-cause note "missing Fuji MPC user registration" was **also wrong**:
+registration is the *sim-world* precondition; on live Fuji there is nothing at 0x64 for a
+registration to live on. `generateOrRecoverAes` → "unable to onboard user" on the Fuji
+RPC is a symptom of the same absence, not a separate missing platform step. Likewise
+"Fuji eth_estimateGas cannot model validateCiphertext" was off — estimation fails because
+the call genuinely always reverts; the explicit gas limit just moved the failure on-chain.
 
 | Piece | Status |
 |-------|--------|
-| `.env` `PRIVATE_AES_KEY_TESTNET` | Correct key; used for ack IT + decrypting Fuji pToken balances |
+| `.env` `PRIVATE_AES_KEY_TESTNET` | Correct key; validates ITs on COTI + decrypts Fuji pToken balances |
 | COTI AccountOnboard | Working — key was recovered / pinned here |
-| Fuji MPC registration for that same key | Missing — `generateOrRecoverAes` on Fuji RPC → `unable to onboard user` |
-| Result | Fuji `ValidateCiphertext` reverts (~28k gas) even though the IT was built with `.env` |
+| Code at `0x…64` on live Fuji | **Absent** (`eth_getCode` → `0x`) — every local `MpcCore` op reverts at the extcodesize guard |
+| "Fuji MPC user registration" | Not a real thing on a vanilla client chain — see the SDK pattern below |
+| Result | `ackPoolCredit` (and `claim` / `clawback`) can never execute on live Fuji as deployed |
 
-COTI onboarding in `@coti-io/coti-ethers` targets AccountOnboard
-`0xe1dA9B857E1196D0BeDBE46960586cBc3F909C17` (docs also list
-`0x536A67f0…` as AccountOnboard on COTI). Pointing that flow at the Fuji RPC does not
-register the user for Fuji MPC. Decrypting Fuji pToken balances with the COTI `.env` key
-works; Fuji accepting a signed IT in `validateCiphertext` is a separate on-chain/MPC
-registration step.
+**Why simCOTI passes but live Fuji does not:** the sim *places* a `SimExtendedOperations`
+contract at address 0x64 (`viem.getContractAt("SimExtendedOperations", MPC_PRECOMPILE)`)
+and `simRegisterUserKey` registers AES keys **on that contract** (`registerUserOnDualSim`
+does it on both the AVAX surrogate and simCOTI). Registration only matters once code
+exists at 0x64; on a public chain nothing can ever be deployed to a precompile-range
+address.
 
-This is **not** a wrong `.env` key, wrong function selector, wrong signer (employer vs
-funder), or missing gas limit bug. UI/test IT shape matches `sablier-payroll-pod`:
-`ackPoolCredit(((uint256,uint256),bytes))`, employer signs, `FUJI_MPC_IT_GAS` is set.
+---
 
-**Why simCOTI passes but live Fuji does not:** pod tests call `registerUserOnDualSim` /
-`onboardSimUser(..., sepoliaViem)` so the **same** AES key bytes are registered on
-**both** the AVAX surrogate and simCOTI (`ITERATION_07_GAPS.md`). Live Fuji has no
-equivalent “register this `.env` key on the client chain” step today.
+## The official live pattern (coti-sdk-pod)
 
-**Knock-on:** `claim` and `clawback` also call `ValidateCiphertext` on Fuji. Even after
-tokens land, a full live claim path stays blocked until Fuji MPC user registration works
-(or contracts are redesigned to avoid Fuji IT validate for pool credit).
+[`pod-method-call.ts`](https://github.com/coti-io/coti-sdk-pod/blob/main/src/pod-method-call.ts)
+in the official SDK shows that client chains are **never** meant to run MPC locally:
+
+- Encrypted inputs are built by COTI's off-chain **encryption service**
+  (`CotiPodCrypto.encrypt` → HTTP `buildEncryptedInputs`), bound to
+  `{contractAddress, functionSelector, userAddress}` — not by the user's local AES key.
+- Calls route through the shared CREATE3 **Inbox**
+  `0xAb625bE229F603f6BBF964474AFf6d5487e364De` (same address on Fuji 43113, Sepolia, and
+  COTI testnet), paying two-way fees via `calculateTwoWayFeeRequiredInLocalToken`.
+- The MPC work executes **on COTI**; results return via callback
+  (`MessageSent` / requestId).
+
+That is exactly how the official pMTT PodERC20 works on Fuji — which is why token
+transfers settle while the facade's local `MpcCore` functions cannot.
+
+**Knock-on (fix scope):** the deployed facade bytecode contains the `OnBoard`,
+`CheckedSub`, and `Decrypt` selectors — `_deductPool`, `claim`, and `clawback` all call
+0x64 too. Fixing ack alone is not enough; every claim would revert the same way. The
+claim payout leg additionally uses the encrypted `pToken.transfer(to, itUint256, …)`
+overload, which bricks senders (below). **Any real fix must remove all local MpcCore
+usage from the Fuji-side contracts.**
 
 **Secondary breakage (transfer):** encrypted `pToken.transfer(to, itUint256, …)` leaves the
 sender `TransferAlreadyPending` forever on Fuji↔COTI testnet. The UI/tests use the public
@@ -92,7 +115,7 @@ sequenceDiagram
   participant pToken as pToken PodERC20
   participant Facade as Campaign facade
   participant COTI as COTI inbox
-  participant MPC as Fuji MPC
+  participant MPC as Address 0x64 on Fuji
 
   Note over Emp,Portal: Test-only seed - not in UI hook
   Emp->>Portal: MTT to pMTT mint to funder
@@ -118,8 +141,8 @@ sequenceDiagram
 
   Emp->>Emp: buildAckPoolIt AES and sign as admin
   Emp->>Facade: ackPoolCredit ackIt
-  Facade->>MPC: ValidateCiphertext
-  Note right of MPC: BROKEN - reverts ~28k gas, no Fuji MPC user registration
+  Facade->>MPC: ValidateCiphertext at 0x64
+  Note right of MPC: BROKEN - no code at 0x64 on Fuji, extcodesize guard reverts ~28k gas
   Note over Facade: Tokens sit on facade but encrypted pool balance stays 0
 ```
 
@@ -137,7 +160,7 @@ flowchart TD
   E -->|BROKEN| Stuck[Sender TransferAlreadyPending forever]
   F -->|OK| G[4. Wait Transfer / TransferFailed]
   G -->|OK| H[5. ackPoolCredit on facade]
-  H -->|BROKEN| I[ValidateCiphertext revert]
+  H -->|BROKEN| I[No code at 0x64 - call reverts]
   I --> J[Facade has tokens / pool ledger empty]
   H -.->|if it worked| K[6. Optional AVAX top-up]
   K -->|OK| L[Claims can draw pool]
@@ -164,9 +187,9 @@ flowchart TD
 | IT `transfer(to, it, fee)` | pToken | **BROKEN** | Never settle; bricks sender |
 | Public `transfer(to, amount, fee)` | pToken | OK | Settles; amount is public |
 | Settle wait | `Transfer` / `TransferFailed` logs | OK | Do not use receiver pending flag |
-| `ackPoolCredit` | Facade + Fuji MPC | **BROKEN** | No Fuji MPC user registration → `ValidateCiphertext` revert |
+| `ackPoolCredit` | Facade → `0x…64` | **BROKEN** | No code at 0x64 on Fuji → extcodesize revert before any validation |
 | AVAX top-up | Facade native | OK | Only after successful ack in UI |
-| Claims after fund | Facade / vault | Blocked | Needs ack; else `InsufficientPoolBalance` |
+| Claims after fund | Facade / vault | Blocked | `_deductPool` also calls 0x64 — same revert even if ack were fixed |
 
 ---
 
@@ -183,7 +206,7 @@ flowchart TB
 
   subgraph breaks [Broken today]
     B1[Encrypted pToken.transfer IT]
-    B2[ackPoolCredit / ValidateCiphertext]
+    B2[Any local MpcCore call - nothing at 0x64]
     B3[Claim against unacked pool]
   end
 
@@ -203,19 +226,22 @@ Same contract design the live UI targets (`PayrollCampaignFacade.ackPoolCredit`)
 3. `facade.ackPoolCredit(ackIt)` → `validateCiphertext` → `offBoard` → `_poolBalanceCt`
 4. Native ETH top-up on facade for later inbox fees
 
-Native `sablier-payroll` (non-PoD) only does plain ERC20 `mint` + `transfer` — no
+This only works in sim because `SimExtendedOperations` is planted at 0x64. Native
+`sablier-payroll` (non-PoD) only does plain ERC20 `mint` + `transfer` — no
 `ackPoolCredit`, no MPC. Not a drop-in substitute for the PoD facade.
 
-### What we can / cannot do in the UI alone
+### Fix options (ranked)
 
-| Option | Feasible? | Notes |
-|--------|-----------|-------|
-| Keep public pToken transfer + retry ack | No | Ack still needs Fuji `ValidateCiphertext` |
-| Match pod encrypted transfer + ack | No | Encrypted transfer stalls; ack still needs Fuji MPC |
-| Onboard employer on Fuji via coti-ethers | Blocked | `unable to onboard user` on Fuji RPC |
-| Run fund E2E on simCOTI (`sablier-payroll-pod`) | Yes | Green with dual-sim onboard |
-| Platform: Fuji AccountOnboard + MPC user keys | Required for live | Then ack/claim ITs can validate |
-| Contract redesign (credit pool from pToken callback / drop Fuji IT validate) | Possible later | Needs new deploy; flagged as prod gap in iteration 07 |
+| # | Option | Feasible? | Notes |
+|---|--------|-----------|-------|
+| 1 | **PoD-canonical redesign**: move `_poolBalanceCt` + `_deductPool` to COTI (`PrivatePayrollCoti`); facade forwards ack/claim through the Fuji inbox (`PodContract.encryptAndCallMethod`, encryption-service ITs); COTI callbacks update Fuji state | **Yes — the real fix** | New deploy; matches how PodERC20 itself works. Employer's COTI onboarding + `.env` AES already validate ITs on COTI |
+| 2 | Drop encrypted ack; credit pool from the pToken settle callback | Yes — pairs with 1 | Fund path is already the public-amount transfer, so the amount is public on the wire anyway; deletes `ackPoolCredit` as a concept |
+| 3 | Demo-only shim: deploy a `SimExtendedOperations`-style validator at a normal Fuji address; recompile with `MPC_PRECOMPILE` repointed | Demo only — **insecure** | AES keys sit in public contract storage, readable by anyone; must never be described as private |
+| 4 | E2E today: Anvil/Hardhat fork of Fuji with `setCode` at 0x64 (or keep simCOTI) | Yes — zero deploys | Same trick as the eth_call state-override proof; unblocks fund→ack→claim in CI now |
+| 5 | Wait for "Fuji AccountOnboard / MPC user keys" | **Not viable** | Nothing will ever appear at hardcoded 0x64 on a chain COTI doesn't control; the SDK's inbox + encryption-service design shows this is intentional |
+
+Also confirmed not viable in the UI alone: retrying ack with the public-transfer flow, or
+matching the pod encrypted-transfer flow — both still dead-end at the missing 0x64 code.
 
 ---
 
@@ -229,13 +255,53 @@ Native `sablier-payroll` (non-PoD) only does plain ERC20 `mint` + `transfer` —
 | Test + portal seed | `tests/testnet/fundCampaign.test.ts`, `tests/testnet/helpers.ts` |
 | Fuji MPC gas override | `FUJI_MPC_IT_GAS` in `podFees.ts` |
 | Facade contract (source of truth) | `pod-dapp-ports/sablier-payroll-pod/contracts-src/avax/PayrollCampaignFacade.sol` |
+| `MPC_PRECOMPILE = 0x64` | `pod-dapp-ports/sablier-payroll-pod/contracts/utils/mpc/MpcInterface.sol` |
 | Pod fund reference | `pod-dapp-ports/sablier-payroll-pod/test/lib/pod-scenario.ts` (`fundCampaignOnFacade`) |
-| Dual-sim onboard (why sim works) | `pod-ecosystem-integration/test/sim-coti/sim-coti-utils.ts` |
+| Sim precompile at 0x64 (why sim works) | `pod-ecosystem-integration/test/sim-coti/sim-coti-utils.ts` (`registerUserOnSim`) |
+| Official client-chain call pattern | `coti-io/coti-sdk-pod` `src/pod-method-call.ts`, `src/consts.ts` |
 | Iteration write-up | `pod-dapp-ports/sablier-payroll-pod/docs/iterations/ITERATION_07_GAPS.md` |
 
 ---
 
 ## How to verify
+
+### Root-cause proof (no gas spent)
+
+```bash
+# 1) Nothing lives at the MPC precompile address on live Fuji:
+curl -s -X POST https://api.avax-test.network/ext/bc/C/rpc -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0x0000000000000000000000000000000000000064","latest"]}'
+# → {"result":"0x"}
+```
+
+```python
+# 2) ackPoolCredit with a GARBAGE IT: reverts plain, succeeds once code exists at 0x64.
+import json, urllib.request
+
+def rpc(method, params):
+    req = urllib.request.Request('https://api.avax-test.network/ext/bc/C/rpc',
+        data=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),
+        headers={'Content-Type':'application/json'})
+    return json.loads(urllib.request.urlopen(req).read())
+
+w = lambda x: format(x, '064x')
+sig = b'\x11' * 65
+data = ('0x649c71cb' + w(0x20) + w(1) + w(2) + w(0x60) + w(len(sig))
+        + sig.hex().ljust(192, '0'))
+call = {'from': '0x0000000000000000000000000000000000001234',
+        'to': '0x5016E770670F1EfD7608cf87D21F98470d8cee50',
+        'data': data, 'gas': '0x2dc6c0'}
+
+print(rpc('eth_call', [call, 'latest']))
+# → execution reverted, data 0x  (the live failure)
+
+mock = '0x6001600052600260205260406000f3'  # returns (1, 2) to any call
+print(rpc('eth_call', [call, 'latest',
+    {'0x0000000000000000000000000000000000000064': {'code': mock}}]))
+# → {"result":"0x"}  (succeeds — only difference is code at 0x64)
+```
+
+### Flow test
 
 ```bash
 cd ui
@@ -246,8 +312,9 @@ npm run test:testnet -- tests/testnet/fundCampaign.test.ts
 
 - Portal mint: pass
 - Public transfer + settle: pass
-- `ackPoolCredit`: fail (`ValidateCiphertext` / no Fuji MPC user registration)
-- Claim path: blocked until ack works
+- `ackPoolCredit`: fail (no code at `0x…64` on Fuji — extcodesize revert, ~28k gas)
+- Claim path: blocked — `_deductPool` hits the same missing precompile
 
-When ack is green, the same test should complete funding with a non-zero encrypted pool
-ledger so claims can `_deductPool` successfully.
+The npm test can only go green against a chain where 0x64 answers: simCOTI, a Fuji fork
+with `setCode` at 0x64 (option 4), or after the contracts are redesigned to route MPC
+through the COTI inbox (option 1).
