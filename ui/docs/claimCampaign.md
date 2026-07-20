@@ -1,30 +1,46 @@
 # Claim campaign flow
 
-**Status: broken on live — ROOT CAUSE CONFIRMED: tx-context signature binding
-(cause 2), 2026-07-19.** Everything up to and including the Fuji `claim` tx works; the
-COTI `verifyAndCredit` leg is **never invoked**. The COTI inbox fails to re-encode the
-message because `MpcCore.validateCiphertext` reverts on the employee's `itUint256`,
-records `ENCODE_FAILED` locally, and never calls back to Fuji — so
-`payoutRequestStatus` stays **Pending** forever and `hasClaimed` never flips.
+**Status: RESOLVED (2026-07-20).** Claims now complete end-to-end on live Fuji + COTI
+testnet. Root cause was the verify-IT's *encryption path*, not an architectural
+impossibility: `buildVerifyIt` (`src/lib/buildPayrollIt.ts`) previously built the
+employee's `itUint256` locally (client-side AES encrypt + **wallet-signed** digest via
+`@coti-io/coti-sdk-typescript`'s `buildItUint256WithSigner`) — that construction fails
+`MpcCore.validateCiphertext` when executed inside a **miner-relayed**
+`batchProcessRequests` call, deterministically, 9/9 attempts, regardless of AES key
+correctness. Swapping to `@coti-io/pod-sdk`'s `CotiPodCrypto.encrypt` — which builds
+the IT via the **PoD encryption service** (COTI-operated signing key, not the
+caller's wallet) — fixed it on the first live attempt:
+`isSpent(runId=6, index=0) == true` on `PrivatePayrollCoti`, confirmed directly
+on-chain. No contract changes were needed; **iter09's contract redesign is no longer
+required** — see
+[How IT data types are actually encrypted](#how-it-data-types-are-actually-encrypted--and-a-cheaper-fix-than-iter09)
+for the fix and [Which cause? Discriminating rerun](#which-cause-discriminating-rerun)
+for the full experiment trail that led here.
 
-The discriminating rerun settled the two candidate causes
-(see [Which cause? Discriminating rerun](#which-cause-discriminating-rerun)):
+The section below (originally written as the live status) is kept for the historical
+record of the 9/9 failure evidence that motivated the fix.
+
+**Former status: broken on live — tx-context signature binding suspected as cause,
+2026-07-19.** Everything up to and including the Fuji `claim` tx worked; the COTI
+`verifyAndCredit` leg was **never invoked**. The COTI inbox failed to re-encode the
+message because `MpcCore.validateCiphertext` reverted on the employee's `itUint256`,
+recorded `ENCODE_FAILED` locally, and never called back to Fuji — so
+`payoutRequestStatus` stayed **Pending** forever and `hasClaimed` never flipped.
+
+The discriminating rerun separated two candidate causes:
 
 1. **Wrong AES key ("local encryption") — real bug, but NOT the blocker.** Every
    earlier run did encrypt the claim IT under a non-network key (env-var mismatch +
-   broken AES recovery; now fixed to pin `CLAIM_AES_KEY`). However, the rerun with
-   the **correct** network key failed identically.
-2. **Tx-context signature binding — CONFIRMED.** With the correct key, correct
-   calldata, and a successfully mined Fuji claim, the relayed IT still failed
-   `validateCiphertext` on COTI with the same `ENCODE_FAILED` + identical
-   `0xfe709212…` payload (requestId `…0a0`) — now **9 out of 9** attempts. User-bound
-   ITs cannot cross the PoD inbox in a miner-submitted tx.
-
-The [iter09 proposal](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti)
-is therefore **required** and proceeds — though a cheaper repair may exist: see
-[How IT data types are actually encrypted — and a cheaper fix than iter09?](#how-it-data-types-are-actually-encrypted--and-a-cheaper-fix-than-iter09)
-for an untested alternative (build the verify-IT via the PoD encryption service
-instead of local wallet-signing) that wouldn't require any contract changes at all.
+   broken AES recovery; fixed by pinning `CLAIM_AES_KEY`). The rerun with the
+   **correct** network key failed identically.
+2. **Wallet-signed vs. service-signed IT construction — this was it.** With the
+   correct key, correct calldata, and a successfully mined Fuji claim, the
+   *wallet-signed* IT still failed `validateCiphertext` on COTI with the same
+   `ENCODE_FAILED` + identical `0xfe709212…` payload — 9 out of 9 attempts. Switching
+   only the IT's encryption/signing path (same contracts, same calldata shape) to
+   the PoD encryption service fixed it. What looked like "user-bound ITs cannot cross
+   the PoD inbox in a miner-submitted tx" was actually "*locally wallet-signed* ITs
+   cannot" — a narrower and fixable statement.
 
 Verified with `npm run test:testnet -- tests/testnet/claimCampaign.test.ts`
 (`.env` `CLAIM_ADDRESS` / `CLAIM_PK`), the same pattern in UI claim attempts, and by
@@ -195,18 +211,25 @@ Rerun log:
      (~9.9% of total) — headroom good up to roughly 50 gwei tx.gasprice instead of
      needing ~0 gwei.
 3. **Final discriminating claim (correct `CLAIM_AES_KEY`, minimal gas price):
-   VERDICT — cause 2 confirmed.** The Fuji claim mined successfully
+   wallet-signed IT still failed.** The Fuji claim mined successfully
    (vault `PayoutRequested`, requestId
    `0x000000000000a86900000000006c11a0…0a0`), the message was delivered on COTI as
    nonce `0xa0`, and the inbox recorded **`errorCode 2 (ENCODE_FAILED)` with the
    identical `0xfe709212…` payload** — the same deterministic `validateCiphertext`
    revert as all eight wrong-key attempts. No `PayoutVerified`, `isSpent(5,0)` false,
    `hasClaimed(0)` false. Encrypting under the correct network AES key changed
-   nothing: the miner-relayed user IT is rejected regardless. **Cause 1 is
-   exonerated as the blocker; cause 2 (tx-context signature binding) is the root
-   cause. iter09 proceeds.**
+   nothing: **cause 1 (wrong key) is exonerated as the blocker**; the wallet-signed
+   IT construction itself is rejected regardless of key correctness — pointing at
+   *how* the IT is signed, not just *who* submits the relaying tx.
+4. **Swap to PoD-encryption-service-signed IT (2026-07-20): FIXED.** Same
+   contracts, same calldata shape — only `buildVerifyIt`'s IT construction changed
+   (see next section). A fresh live claim (runId `6`, index `0`) completed:
+   `isSpent(6, 0) == true` on `PrivatePayrollCoti`, confirmed directly on-chain.
+   **The tx-context/miner-relay hypothesis was too broad — it wasn't that no
+   miner-relayed IT can validate, it's that *wallet-signed* ones can't. Service-signed
+   ones do. iter09's contract redesign is not needed.**
 
-### How IT data types are actually encrypted — and a cheaper fix than iter09?
+### How IT data types are actually encrypted — and a cheaper fix than iter09? [FIX APPLIED]
 
 `@coti-io/pod-sdk` (already a transitive dependency here via `@coti-io/coti-wallet-plugin`,
 installed at `node_modules/@coti-io/pod-sdk`) reveals there are **two distinct ways** to
@@ -235,13 +258,15 @@ themself (a genuinely local, same-chain call); `verifyAndCredit`'s IT is execute
 inside a **miner-relayed** `batchProcessRequests` call, which is structurally the same
 situation the PoD encryption service exists to handle.
 
-**Not yet tested live**, but a plausible smaller fix than iter09's contract redesign:
-swap `buildVerifyIt` to call `CotiPodCrypto.encrypt(amount, "testnet", DataType.itUint256, { contractAddress: cotiTestnetContracts.inbox.address, functionSelector: BATCH_PROCESS_SELECTOR, userAddress: employeeAddress })`
-instead of `buildItUint256WithSigner`, keeping `verifyAndCredit`'s existing
-`gtUint256` signature unchanged. If the service-signed ciphertext validates inside
-the miner-relayed tx where the wallet-signed one didn't, iter09's contract changes
-become unnecessary — worth a discriminating test before committing to the iter09
-rewrite.
+**Confirmed live (2026-07-20):** `buildVerifyIt` now calls
+`CotiPodCrypto.encrypt(amount.toString(), "testnet", DataType.itUint256, { contractAddress: cotiTestnetContracts.inbox.address, functionSelector: BATCH_PROCESS_SELECTOR, userAddress: employeeAddress })`
+instead of `buildItUint256WithSigner` — `verifyAndCredit`'s existing `gtUint256`
+signature is unchanged, no contract redeploy required for this fix. `@coti-io/pod-sdk`
+was added as a direct dependency (`ui/package.json`); `aesKey`/`signMessageAsync`
+dropped from `buildVerifyIt`'s params since the service handles both. A fresh live
+claim completed on the first attempt: `isSpent(runId=6, index=0) == true`. **iter09's
+contract redesign is retracted as unnecessary** — kept below only as a record of the
+alternative that was being considered before this fix landed.
 
 ### Why simCOTI passes and the fund path works
 

@@ -73,10 +73,11 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
 
       const signerParams = { aesKey: sessionAesKey, signerAddress: address, signMessageAsync }
 
-      // verifyIt → COTI verifyAndCredit (real). claimIt is still required by the facade ABI
-      // but ignored on-chain (iter08); payout IT was removed from ClaimStore.
+      // verifyIt → COTI verifyAndCredit (real), built via the PoD encryption service (service-
+      // signed, not wallet-signed — see buildVerifyIt's doc comment). claimIt is still required
+      // by the facade ABI but ignored on-chain (iter08); payout IT was removed from ClaimStore.
       stage('Building encrypted claim inputs…')
-      const verifyIt = await buildVerifyIt({ amount, ...signerParams })
+      const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
       const claimIt = await buildClaimIt({
         amount,
         ...signerParams,

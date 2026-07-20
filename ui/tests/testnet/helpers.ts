@@ -508,7 +508,7 @@ export async function claimOnChain(params: {
   }
 
   const signerParams = { aesKey, signerAddress: address, signMessageAsync }
-  const verifyIt = await buildVerifyIt({ amount, ...signerParams })
+  const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
   const claimIt = await buildClaimIt({
     amount,
     ...signerParams,

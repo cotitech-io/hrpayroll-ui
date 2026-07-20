@@ -1,4 +1,5 @@
 import { buildItUint256WithSigner } from '@coti-io/coti-sdk-typescript'
+import { CotiPodCrypto, DataType, type EncryptedScalar } from '@coti-io/pod-sdk'
 import { bytesToHex, toFunctionSelector, type Hex } from 'viem'
 import { cotiTestnetContracts } from '../config/contracts'
 
@@ -43,22 +44,39 @@ async function buildIt(params: {
   return { ciphertext: result.ciphertext, signature: result.signature as Hex }
 }
 
+function toItUint256Struct(encrypted: { ciphertext: unknown; signature: string }): ItUint256Struct {
+  const ct = encrypted.ciphertext as { ciphertextHigh?: unknown; ciphertextLow?: unknown } | null
+  if (!ct || typeof ct !== 'object' || !('ciphertextHigh' in ct) || !('ciphertextLow' in ct)) {
+    throw new Error(
+      `PoD encryption service returned an unexpected ciphertext shape for itUint256: ${JSON.stringify(encrypted)}`,
+    )
+  }
+  const toBigInt = (v: unknown) => (typeof v === 'bigint' ? v : BigInt(String(v)))
+  const sig = encrypted.signature
+  return {
+    ciphertext: { ciphertextHigh: toBigInt(ct.ciphertextHigh), ciphertextLow: toBigInt(ct.ciphertextLow) },
+    signature: (sig.startsWith('0x') ? sig : `0x${sig}`) as Hex,
+  }
+}
+
 // Bound to (COTI inbox, batchProcessRequests) — the amount COTI's verifyAndCredit checks
 // against the registered roster commitment for this index.
-export function buildVerifyIt(params: {
-  amount: bigint
-  aesKey: string
-  signerAddress: Hex
-  signMessageAsync: SignMessageAsync
-}) {
-  return buildIt({
-    value: params.amount,
-    aesKey: params.aesKey,
-    signerAddress: params.signerAddress,
+//
+// Unlike every other builder in this file, this IT is executed inside a *miner-relayed*
+// inbox call (batchProcessRequests), not a tx the signer submits themself. A locally
+// wallet-signed IT (buildItUint256WithSigner, same path as buildClaimIt/buildRegisterLeafIt
+// below) reliably fails validateCiphertext there — see docs/claimCampaign.md "Root cause".
+// The PoD encryption service signs with a COTI-operated service key instead of the caller's
+// wallet key, which is the standard construction for pod-sdk (see coti-wallet-plugin's
+// podTransferFees.ts for a production reference) — this is the live experiment for whether
+// that unblocks miner-relayed validation where wallet-signing did not.
+export async function buildVerifyIt(params: { amount: bigint; signerAddress: Hex }): Promise<ItUint256Struct> {
+  const encrypted = (await CotiPodCrypto.encrypt(params.amount.toString(), 'testnet', DataType.itUint256, {
     contractAddress: cotiTestnetContracts.inbox.address,
     functionSelector: BATCH_PROCESS_SELECTOR,
-    signMessageAsync: params.signMessageAsync,
-  })
+    userAddress: params.signerAddress,
+  })) as EncryptedScalar
+  return toItUint256Struct(encrypted)
 }
 
 // Deprecated for iter08 claims — ClaimStore no longer stores a payout IT; COTI returns a
