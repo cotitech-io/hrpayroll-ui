@@ -1,27 +1,27 @@
 # Claim campaign flow
 
-**Status: broken on live — failure point confirmed; root cause narrowed to two
-candidates, discriminating rerun in progress (2026-07-19).** Everything up to and
-including the Fuji `claim` tx works; the COTI `verifyAndCredit` leg is **never invoked**.
-The COTI inbox fails to re-encode the message because `MpcCore.validateCiphertext`
-reverts on the employee's `itUint256`, records `ENCODE_FAILED` locally, and never calls
-back to Fuji — so `payoutRequestStatus` stays **Pending** forever and `hasClaimed`
-never flips.
+**Status: broken on live — ROOT CAUSE CONFIRMED: tx-context signature binding
+(cause 2), 2026-07-19.** Everything up to and including the Fuji `claim` tx works; the
+COTI `verifyAndCredit` leg is **never invoked**. The COTI inbox fails to re-encode the
+message because `MpcCore.validateCiphertext` reverts on the employee's `itUint256`,
+records `ENCODE_FAILED` locally, and never calls back to Fuji — so
+`payoutRequestStatus` stays **Pending** forever and `hasClaimed` never flips.
 
-Two candidate causes for the revert:
+The discriminating rerun settled the two candidate causes
+(see [Which cause? Discriminating rerun](#which-cause-discriminating-rerun)):
 
-1. **Wrong AES key ("local encryption") — confirmed present** (COTI-team feedback):
-   every failing run encrypted the claim IT under a key that is *not* the account's
-   real network AES key. An env-var name mismatch made the test ignore the
-   `CLAIM_AES_KEY` pin and fall back to an AES-recovery path that returns a wrong key.
-2. **Tx-context signature binding**: user-bound ITs relayed by the pod miner cannot
-   match a digest reconstructed from the miner-sent COTI tx.
+1. **Wrong AES key ("local encryption") — real bug, but NOT the blocker.** Every
+   earlier run did encrypt the claim IT under a non-network key (env-var mismatch +
+   broken AES recovery; now fixed to pin `CLAIM_AES_KEY`). However, the rerun with
+   the **correct** network key failed identically.
+2. **Tx-context signature binding — CONFIRMED.** With the correct key, correct
+   calldata, and a successfully mined Fuji claim, the relayed IT still failed
+   `validateCiphertext` on COTI with the same `ENCODE_FAILED` + identical
+   `0xfe709212…` payload (requestId `…0a0`) — now **9 out of 9** attempts. User-bound
+   ITs cannot cross the PoD inbox in a miner-submitted tx.
 
-A rerun with the IT encrypted under the correct pinned key discriminates the two —
-see [Which cause? Discriminating rerun](#which-cause-discriminating-rerun). The
-[iter09 proposal](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti)
-below is required only if cause 2 holds; if the rerun completes, the current
-architecture works once the key is right.
+The [iter09 proposal](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti)
+is therefore **required** and proceeds.
 
 Verified with `npm run test:testnet -- tests/testnet/claimCampaign.test.ts`
 (`.env` `CLAIM_ADDRESS` / `CLAIM_PK`), the same pattern in UI claim attempts, and by
@@ -152,11 +152,28 @@ Rerun log:
    100 pMTT, facade topped up with AVAX — and its three fund messages (nonces
    `0x9d`–`0x9f`: portal mint, pToken transfer, `creditPool`) all delivered on the
    COTI inbox **with no error recorded**, reconfirming plain-arg messages pass.
-2. **Claim-only rerun against runId 5: in progress** — rebuilds the claim package
-   from the facade's on-chain `amountCommitment(0)` (single-leaf tree, empty proof)
-   and runs just `claimOnChain` with the IT encrypted under the pinned
-   `CLAIM_AES_KEY`. Verdict comes from `errors(nonce 0xa0)` on the COTI inbox plus
-   `PayoutVerified` / `hasClaimed`. Record the result here when it lands.
+2. **Claim-only rerun against runId 5: blocked twice by unrelated Fuji-side issues**
+   (both documented because they will bite again):
+   - `viem` `writeContract` from the claimant signer hung indefinitely without
+     broadcasting (simulation of the same call passed in <1 s). Bypassed with a
+     manual raw send (`signTransaction` + `eth_sendRawTransaction`).
+   - The manual send at 2 gwei then hit **`TargetFeeTooLow(7560199)`** from the
+     inbox: `InboxFeeManager` computes the remote budget as
+     `(fee − callbackFee) / tx.gasprice × priceRatio`, so the budget is **inversely
+     proportional to the claim tx's own gas price**. Historical successful claims
+     mined at **2 wei** effective; 2 gwei divided the budget ~10⁹×, below the floor.
+     **Ops rule: never bump gas price on txs that pay this inbox a fixed fee.**
+3. **Final discriminating claim (correct `CLAIM_AES_KEY`, minimal gas price):
+   VERDICT — cause 2 confirmed.** The Fuji claim mined successfully
+   (vault `PayoutRequested`, requestId
+   `0x000000000000a86900000000006c11a0…0a0`), the message was delivered on COTI as
+   nonce `0xa0`, and the inbox recorded **`errorCode 2 (ENCODE_FAILED)` with the
+   identical `0xfe709212…` payload** — the same deterministic `validateCiphertext`
+   revert as all eight wrong-key attempts. No `PayoutVerified`, `isSpent(5,0)` false,
+   `hasClaimed(0)` false. Encrypting under the correct network AES key changed
+   nothing: the miner-relayed user IT is rejected regardless. **Cause 1 is
+   exonerated as the blocker; cause 2 (tx-context signature binding) is the root
+   cause. iter09 proceeds.**
 
 ### Why simCOTI passes and the fund path works
 
@@ -210,12 +227,10 @@ sequenceDiagram
 
 ## Proposed solution (iter09): submit the claim amount directly on COTI
 
-> **Precondition:** this redesign is needed only if
-> [cause 2](#candidate-cause-2-tx-context-signature-binding) is confirmed by the
-> discriminating rerun. If the rerun with the correct `CLAIM_AES_KEY` completes, the
-> current architecture works and iter09 is unnecessary — the
-> [companion fixes](#companion-fixes-separate-repos-not-blockers-for-iter09) remain
-> worthwhile either way.
+> **Precondition met (2026-07-19):** the discriminating rerun confirmed
+> [cause 2](#candidate-cause-2-tx-context-signature-binding) — a claim IT encrypted
+> under the correct network AES key still fails inbox validation identically. This
+> redesign is required.
 
 **Principle:** never ship a user-bound IT through the inbox. ITs validate on live COTI
 only when the signer sends the COTI tx themself (`registerLeaf` proves this binding
