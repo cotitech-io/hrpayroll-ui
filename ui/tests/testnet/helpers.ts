@@ -31,7 +31,7 @@ import {
   type SignMessageAsync,
 } from '../../src/lib/buildPayrollIt'
 import { toClaimPackage, type ClaimPackage } from '../../src/lib/claimPackage'
-import { computePTokenTwoWayFees, COTI_REGISTER_LEAF_GAS } from '../../src/lib/podFees'
+import { computePTokenTwoWayFees, COTI_REGISTER_LEAF_GAS, estimateVaultTwoWayFees } from '../../src/lib/podFees'
 
 // Shared plumbing for the real-network (Fuji + COTI testnet) suites. Everything here reuses
 // the UI's production modules — merkle builder, IT builders, contracts config — swapping only
@@ -441,12 +441,12 @@ export async function fundCampaignOnChain(params: {
 
   const facade = { address: facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const
   const creditedBefore = await fujiPublic.readContract({ ...facade, functionName: 'poolCreditedTotal' })
-  const inboxFeeWei = await fujiPublic.readContract({ ...facade, functionName: 'inboxFeeWei' })
+  const { totalFeeWei, callbackFeeWei } = await estimateVaultTwoWayFees(fujiPublic)
   const creditHash = await employer.fujiWallet.writeContract({
     ...facade,
     functionName: 'requestCreditPool',
-    args: [amount],
-    value: inboxFeeWei,
+    args: [amount, callbackFeeWei],
+    value: totalFeeWei,
   })
   const creditReceipt = await fujiPublic.waitForTransactionReceipt({ hash: creditHash })
   if (creditReceipt.status !== 'success') throw new Error(`requestCreditPool reverted (tx ${creditHash}).`)
@@ -493,17 +493,17 @@ export async function claimOnChain(params: {
   const facade = { address: pkg.facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const
   const amount = BigInt(pkg.amount)
 
-  const [expired, alreadyClaimed, inboxFeeWei, facadeBalance] = await Promise.all([
+  const [expired, alreadyClaimed, { totalFeeWei }, facadeBalance] = await Promise.all([
     fujiPublic.readContract({ ...facade, functionName: 'hasExpired' }),
     fujiPublic.readContract({ ...facade, functionName: 'hasClaimed', args: [BigInt(pkg.index)] }),
-    fujiPublic.readContract({ ...facade, functionName: 'inboxFeeWei' }),
+    estimateVaultTwoWayFees(fujiPublic),
     fujiPublic.getBalance({ address: pkg.facadeAddress }),
   ])
   if (expired) throw new Error('Campaign has expired.')
   if (alreadyClaimed) throw new Error(`Index ${pkg.index} already claimed.`)
-  if (facadeBalance < inboxFeeWei) {
+  if (facadeBalance < totalFeeWei) {
     throw new Error(
-      `Facade ${pkg.facadeAddress} needs ≥ ${inboxFeeWei} wei AVAX for inbox fee (has ${facadeBalance}).`,
+      `Facade ${pkg.facadeAddress} needs ≥ ${totalFeeWei} wei AVAX for inbox fee (has ${facadeBalance}).`,
     )
   }
 

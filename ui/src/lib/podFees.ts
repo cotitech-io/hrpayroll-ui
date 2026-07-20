@@ -43,3 +43,27 @@ export async function computePTokenTwoWayFees(publicClient: PublicClient) {
     pTokenTransferFeeWei: pad5Percent(targetFeeLocalWei + callerFeeLocalWei),
   }
 }
+
+// Mirrors PayrollVault.estimateFee() (payroll MPC payloads are larger than pToken's, hence
+// separate size/gas terms) — but called directly against the inbox with gasPrice as an
+// explicit argument, because estimateFee() itself reads `tx.gasprice` implicitly and viem's
+// readContract has no way to override the eth_call's gas price for a plain view call.
+const PAYROLL_CALL_SIZE = 4096n
+const PAYROLL_EXEC_GAS = 600_000n
+
+export async function estimateVaultTwoWayFees(publicClient: PublicClient) {
+  const feeEstimate = await publicClient.estimateFeesPerGas().catch(() => null)
+  const liveGasPrice = feeEstimate?.maxFeePerGas ?? (await publicClient.getGasPrice())
+  const quoteGasPrice =
+    liveGasPrice * 2n > PTOKEN_MIN_GAS_PRICE_WEI ? liveGasPrice * 2n : PTOKEN_MIN_GAS_PRICE_WEI
+
+  const [targetFeeWei, callbackFeeWei] = await publicClient.readContract({
+    ...avaxContracts.inbox,
+    functionName: 'calculateTwoWayFeeRequiredInLocalToken',
+    args: [PAYROLL_CALL_SIZE, PAYROLL_CALL_SIZE, PAYROLL_EXEC_GAS, PAYROLL_EXEC_GAS, quoteGasPrice],
+  })
+  return {
+    callbackFeeWei: pad5Percent(callbackFeeWei),
+    totalFeeWei: pad5Percent(targetFeeWei + callbackFeeWei),
+  }
+}

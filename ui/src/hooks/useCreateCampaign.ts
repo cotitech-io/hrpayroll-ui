@@ -91,7 +91,8 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
       const minFeeUSD = params.minFeeUSD ?? 0n
 
       // One tx replaces the old facade-deploy + vault.createRun + facade.wirePayroll
-      // sequence — the factory does all three, using the wire fees stored on it at deploy.
+      // sequence — the factory does all three. No fees are stored anywhere; fund/claim/
+      // clawback quote PayrollVault.estimateFee() live at the time they're sent.
       stage('Creating campaign via factory…')
       const createHash = await writeContractAsync({
         ...avaxContracts.payrollCampaignFactory,

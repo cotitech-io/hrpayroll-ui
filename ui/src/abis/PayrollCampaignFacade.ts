@@ -194,17 +194,17 @@ export const PayrollCampaignFacadeAbi = [
   },
   {
     "inputs": [],
-    "name": "InsufficientPoolBalance",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "InvalidProof",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "ToZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAmount",
     "type": "error"
   },
   {
@@ -534,6 +534,11 @@ export const PayrollCampaignFacadeAbi = [
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "callbackFeeWei",
+        "type": "uint256"
       }
     ],
     "name": "clawback",
@@ -587,19 +592,6 @@ export const PayrollCampaignFacadeAbi = [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "inboxFeeWei",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -636,32 +628,6 @@ export const PayrollCampaignFacadeAbi = [
     "name": "onPoolCredited",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pTokenCallbackFeeWei",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pTokenTransferFeeWei",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -756,6 +722,11 @@ export const PayrollCampaignFacadeAbi = [
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "callbackFeeWei",
+        "type": "uint256"
       }
     ],
     "name": "requestCreditPool",
@@ -792,31 +763,24 @@ export const PayrollCampaignFacadeAbi = [
         "internalType": "uint256",
         "name": "runId_",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "callbackFeeWei_",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "inboxFeeWei_",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "pTokenTransferFeeWei_",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "pTokenCallbackFeeWei_",
-        "type": "uint256"
       }
     ],
     "name": "wirePayroll",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "DEPLOYER",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ] as const

@@ -5,6 +5,7 @@ import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
 import { buildClaimIt, buildVerifyIt, CLAIM_SELECTOR, CLAIM_TO_SELECTOR } from '../lib/buildPayrollIt'
 import type { ClaimPackage } from '../lib/claimPackage'
+import { estimateVaultTwoWayFees } from '../lib/podFees'
 
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 300_000
@@ -55,18 +56,19 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
         )
       }
 
-      const [expired, alreadyClaimed, inboxFeeWei, facadeBalance] = await Promise.all([
+      const [expired, alreadyClaimed, { totalFeeWei }, facadeBalance] = await Promise.all([
         publicClient.readContract({ ...facade, functionName: 'hasExpired' }),
         publicClient.readContract({ ...facade, functionName: 'hasClaimed', args: [BigInt(pkg.index)] }),
-        publicClient.readContract({ ...facade, functionName: 'inboxFeeWei' }),
+        estimateVaultTwoWayFees(publicClient),
         publicClient.getBalance({ address: pkg.facadeAddress }),
       ])
       if (expired) throw new Error('This campaign has expired; claims are closed.')
       if (alreadyClaimed) throw new Error('This index was already claimed.')
-      // Facade pays vault.requestPayout{value: inboxFeeWei} from its own balance (not msg.value).
-      if (facadeBalance < inboxFeeWei) {
+      // Facade pays vault.requestPayout{value: totalFeeWei} from its own balance (not msg.value) —
+      // quoted live from the inbox (oracle prices × tx.gasprice); no stored constant.
+      if (facadeBalance < totalFeeWei) {
         throw new Error(
-          `Campaign facade needs at least ${inboxFeeWei} wei AVAX for the claim inbox fee ` +
+          `Campaign facade needs at least ${totalFeeWei} wei AVAX for the claim inbox fee ` +
             `(has ${facadeBalance}). Ask the organization to top up the facade with native AVAX.`,
         )
       }

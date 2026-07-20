@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { getAbiItem, type Hex } from 'viem'
 import { useAccount, usePublicClient, useSendTransaction, useWriteContract } from 'wagmi'
 import { AVAX_CHAIN_ID, avaxContracts } from '../config/contracts'
-import { computePTokenTwoWayFees } from '../lib/podFees'
+import { computePTokenTwoWayFees, estimateVaultTwoWayFees } from '../lib/podFees'
 
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 300_000
@@ -166,20 +166,18 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
         ...facade,
         functionName: 'poolCreditedTotal',
       })
-      const inboxFeeWei = await publicClient.readContract({
-        ...facade,
-        functionName: 'inboxFeeWei',
-      })
+      const { totalFeeWei, callbackFeeWei } = await estimateVaultTwoWayFees(publicClient)
       log('requestCreditPool', {
         amount: params.amount.toString(),
-        inboxFeeWei: inboxFeeWei.toString(),
+        totalFeeWei: totalFeeWei.toString(),
+        callbackFeeWei: callbackFeeWei.toString(),
         creditedBefore: creditedBefore.toString(),
       })
       const creditHash = await writeContractAsync({
         ...facade,
         functionName: 'requestCreditPool',
-        args: [params.amount],
-        value: inboxFeeWei,
+        args: [params.amount, callbackFeeWei],
+        value: totalFeeWei,
         chainId: AVAX_CHAIN_ID,
       })
       log('requestCreditPool tx submitted', { creditHash })
