@@ -21,7 +21,10 @@ The discriminating rerun settled the two candidate causes
    ITs cannot cross the PoD inbox in a miner-submitted tx.
 
 The [iter09 proposal](#proposed-solution-iter09-submit-the-claim-amount-directly-on-coti)
-is therefore **required** and proceeds.
+is therefore **required** and proceeds — though a cheaper repair may exist: see
+[How IT data types are actually encrypted — and a cheaper fix than iter09?](#how-it-data-types-are-actually-encrypted--and-a-cheaper-fix-than-iter09)
+for an untested alternative (build the verify-IT via the PoD encryption service
+instead of local wallet-signing) that wouldn't require any contract changes at all.
 
 Verified with `npm run test:testnet -- tests/testnet/claimCampaign.test.ts`
 (`.env` `CLAIM_ADDRESS` / `CLAIM_PK`), the same pattern in UI claim attempts, and by
@@ -154,15 +157,43 @@ Rerun log:
    COTI inbox **with no error recorded**, reconfirming plain-arg messages pass.
 2. **Claim-only rerun against runId 5: blocked twice by unrelated Fuji-side issues**
    (both documented because they will bite again):
-   - `viem` `writeContract` from the claimant signer hung indefinitely without
-     broadcasting (simulation of the same call passed in <1 s). Bypassed with a
-     manual raw send (`signTransaction` + `eth_sendRawTransaction`).
-   - The manual send at 2 gwei then hit **`TargetFeeTooLow(7560199)`** from the
-     inbox: `InboxFeeManager` computes the remote budget as
-     `(fee − callbackFee) / tx.gasprice × priceRatio`, so the budget is **inversely
-     proportional to the claim tx's own gas price**. Historical successful claims
-     mined at **2 wei** effective; 2 gwei divided the budget ~10⁹×, below the floor.
-     **Ops rule: never bump gas price on txs that pay this inbox a fixed fee.**
+   - **Exact hang:** `PayrollClaimStore.submitPayload(...)`, called through viem's
+     `walletClient.writeContract(...)`, hung indefinitely and never broadcast — even
+     though `simulateContract` for the byte-identical call returned in under a
+     second. Root cause not isolated further (suspect one of the sequential RPC
+     calls `writeContract` makes internally — nonce/fee-per-gas/chain-id lookups —
+     stalling against the public Fuji RPC), but reliably bypassed by decomposing
+     into `account.signTransaction(...)` + `eth_sendRawTransaction` directly. The
+     subsequent `PayrollCampaignFacade.claim(...)` call was sent the same
+     (pre-decomposed) way, so it's untested whether `claim`'s `writeContract` path
+     hangs too — treat both as suspect.
+   - **Exact fail:** the decomposed `claim(...)` tx mined but **reverted** with
+     custom error **`TargetFeeTooLow(7560199)`** from
+     `InboxFeeManager.validateAndPrepareTwoWayFees` (selector `0xcf3cbb39`, decoded
+     via `@coti-io/pod-sdk`'s ABI). Root cause, confirmed by reading the deployed
+     constants directly (not oracle drift, as first guessed): the vault's
+     `inboxFeeWei` (`1000968000000001`) / `payoutCallbackFeeWei`
+     (`979128000000001`) split leaves only **2.18%** of the total for the remote
+     (COTI-side) leg — `21840000000000` wei. `InboxFeeManager` converts that
+     leftover to gas units as `remoteGasWei / tx.gasprice`, so the budget is
+     **inversely proportional to the claim tx's own gas price**: historical
+     successful claims happened to mine at **2 wei** effective (Fuji's live
+     `eth_gasPrice` genuinely floats near zero), which inflates
+     `21840000000000 / 2 ≈ 1.09×10¹³` gas units — comfortably over the
+     `remoteMinFeeConfig.constantFee` floor of `12,000,000`. At a normal 2 gwei the
+     same wei budget divides down to ~10,920 gas units, far under the floor.
+     **Ops rule: never bump gas price on txs that pay this inbox a fixed fee — the
+     fix is a correctly-split fee constant, not a low gas price.**
+   - **Fixed same day:** recomputed the split with `@coti-io/pod-sdk`'s
+     `PodContract.estimateFee` (wrapping the inbox's own
+     `calculateTwoWayFeeRequiredInLocalToken` view function) at 50 gwei headroom,
+     then called `PayrollVault.setInboxFees(totalFeeWei, callbackFeeWei_)` as owner
+     (`PRIVATE_KEY3` — verified as `vault.owner()`) — tx
+     `0xcf19bc53defe628e7c1020f6dc17a17fc7e73fd27f14f1131946b2ebef74e10e`, block
+     `57122783`. New split: `totalFeeWei=8783650000000000`,
+     `callbackFeeWei=7917000000000000`, remote leg now `866650000000000` wei
+     (~9.9% of total) — headroom good up to roughly 50 gwei tx.gasprice instead of
+     needing ~0 gwei.
 3. **Final discriminating claim (correct `CLAIM_AES_KEY`, minimal gas price):
    VERDICT — cause 2 confirmed.** The Fuji claim mined successfully
    (vault `PayoutRequested`, requestId
@@ -174,6 +205,43 @@ Rerun log:
    nothing: the miner-relayed user IT is rejected regardless. **Cause 1 is
    exonerated as the blocker; cause 2 (tx-context signature binding) is the root
    cause. iter09 proceeds.**
+
+### How IT data types are actually encrypted — and a cheaper fix than iter09?
+
+`@coti-io/pod-sdk` (already a transitive dependency here via `@coti-io/coti-wallet-plugin`,
+installed at `node_modules/@coti-io/pod-sdk`) reveals there are **two distinct ways** to
+produce an `itUint256`, and the codebase currently uses only one of them:
+
+1. **Local / wallet-signed (what `buildVerifyIt` in `src/lib/buildPayrollIt.ts` does):**
+   encrypt the plaintext client-side with the user's AES key
+   (`encryptUint256`/`buildItUint256WithSigner` from `@coti-io/coti-sdk-typescript`),
+   then sign the digest `(signer, contract, selector, ctHigh, ctLow)` with the
+   **user's own wallet key**. This is exactly the "local encryption" the COTI-team
+   feedback flagged as suspect.
+2. **PoD-encryption-service-signed (`CotiPodCrypto.encrypt` in `@coti-io/pod-sdk`):**
+   POST `{value, dataType, contractAddress, functionSelector, userAddress}` to the
+   PoD encryption service (`https://fullnode.testnet.coti.io/pod-encryption` on
+   testnet) and use the ciphertext/signature it returns. Per the SDK's own doc
+   comment on `ItVerificationOptions.verifyItSignature`: *"Does not apply to
+   ciphertext returned by the HTTP encryption service — **those signatures use the
+   service key**"* — i.e. path 2 is signed by a COTI-operated service key, not by
+   the end user's wallet at all.
+
+This reframes cause 1 vs cause 2: it isn't only that a miner-relayed tx can't match a
+digest reconstructed from the miner's address — it's that **path 1 was quite possibly
+never the right encryption path for anything that crosses the inbox**. `registerLeaf`
+and `ackPoolCredit` work with path 1 because the signer submits that COTI/Fuji tx
+themself (a genuinely local, same-chain call); `verifyAndCredit`'s IT is executed
+inside a **miner-relayed** `batchProcessRequests` call, which is structurally the same
+situation the PoD encryption service exists to handle.
+
+**Not yet tested live**, but a plausible smaller fix than iter09's contract redesign:
+swap `buildVerifyIt` to call `CotiPodCrypto.encrypt(amount, "testnet", DataType.itUint256, { contractAddress: cotiTestnetContracts.inbox.address, functionSelector: BATCH_PROCESS_SELECTOR, userAddress: employeeAddress })`
+instead of `buildItUint256WithSigner`, keeping `verifyAndCredit`'s existing
+`gtUint256` signature unchanged. If the service-signed ciphertext validates inside
+the miner-relayed tx where the wallet-signed one didn't, iter09's contract changes
+become unnecessary — worth a discriminating test before committing to the iter09
+rewrite.
 
 ### Why simCOTI passes and the fund path works
 
