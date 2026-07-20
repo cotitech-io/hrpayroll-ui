@@ -210,6 +210,13 @@ Rerun log:
      `callbackFeeWei=7917000000000000`, remote leg now `866650000000000` wei
      (~9.9% of total) — headroom good up to roughly 50 gwei tx.gasprice instead of
      needing ~0 gwei.
+
+     **Superseded by the 2026-07-20 redeploy** — `setInboxFees`/`inboxFeeWei`/
+     `payoutCallbackFeeWei` no longer exist on the contract at all (this fix, along
+     with the bug it patched, is entirely moot on the new addresses). The redeploy
+     replaced the whole baked-fee model with a live `PayrollVault.estimateFee()`; see
+     [fundCampaign.md](./fundCampaign.md#fees--no-stored-constants) for the current
+     mechanism.
 3. **Final discriminating claim (correct `CLAIM_AES_KEY`, minimal gas price):
    wallet-signed IT still failed.** The Fuji claim mined successfully
    (vault `PayoutRequested`, requestId
@@ -253,10 +260,12 @@ produce an `itUint256`, and the codebase currently uses only one of them:
 This reframes cause 1 vs cause 2: it isn't only that a miner-relayed tx can't match a
 digest reconstructed from the miner's address — it's that **path 1 was quite possibly
 never the right encryption path for anything that crosses the inbox**. `registerLeaf`
-and `ackPoolCredit` work with path 1 because the signer submits that COTI/Fuji tx
-themself (a genuinely local, same-chain call); `verifyAndCredit`'s IT is executed
-inside a **miner-relayed** `batchProcessRequests` call, which is structurally the same
-situation the PoD encryption service exists to handle.
+works with path 1 because the signer submits that COTI tx themself (a genuinely local,
+same-chain call — `ackPoolCredit` was the same kind of call before the 2026-07-20
+redeploy removed it entirely in favor of a public-amount `requestCreditPool`);
+`verifyAndCredit`'s IT is executed inside a **miner-relayed** `batchProcessRequests`
+call, which is structurally the same situation the PoD encryption service exists to
+handle.
 
 **Confirmed live (2026-07-20):** `buildVerifyIt` now calls
 `CotiPodCrypto.encrypt(amount.toString(), "testnet", DataType.itUint256, { contractAddress: cotiTestnetContracts.inbox.address, functionSelector: BATCH_PROCESS_SELECTOR, userAddress: employeeAddress })`

@@ -1,15 +1,21 @@
 # Fund campaign flow
 
-**Status: ready to retest on live** — iter08 redeploy (2026-07-19) removes Fuji-local
-`MpcCore` / `ackPoolCredit`. Fund path is now PoD-shaped:
+**Status: confirmed working on live (2026-07-20).** iter08 redeploy removes Fuji-local
+`MpcCore` / `ackPoolCredit`. Fund path is PoD-shaped:
 `public pToken.transfer(facade) → requestCreditPool → COTI creditPool → onPoolCredited`.
+The 2026-07-20 redeploy additionally removed every baked-in fee constant
+(`setInboxFees` / `inboxFeeWei` / `payoutCallbackFeeWei` are gone from the contracts) —
+`requestCreditPool` now takes a second `callbackFeeWei` argument, both it and the
+`msg.value` total quoted live via `PayrollVault.estimateFee()`. Verified end-to-end via
+`tests/testnet/claimCampaign.test.ts` (create → fund → claim in one run, 146s, first try
+against the new deploy).
 
 Source of truth: [coti-io/pod-dapp-ports](https://github.com/coti-io/pod-dapp-ports)
 `sablier-payroll-pod` · architecture `iter08-thin-fuji-facade` ·
 [ITERATION_08_GAPS.md](https://github.com/coti-io/pod-dapp-ports/blob/main/sablier-payroll-pod/docs/iterations/ITERATION_08_GAPS.md).
 
 Reference facade from the production manifest (runId `1`):
-`0x458851b4f87C9B2cdb53A9Fb0DB3f4189584dF67`.
+`0x401b9514a3CCA82c790d7F360F28C1B33F04227D`.
 
 ---
 
@@ -36,16 +42,16 @@ doc + `tests/testnet/fundCampaign.test.ts` re-evaluate.
 
 ## Live deploy (Avalanche Fuji + COTI testnet)
 
-Manifest snapshot (`updatedAt` `2026-07-19T18:26:33.219Z`, `mode` production):
+Manifest snapshot (`updatedAt` `2026-07-20T11:14:43.663Z`, `mode` production):
 
 | Piece | Address |
 |-------|---------|
-| `payrollCampaignFactory` | `0x4d2613a8fa165a54171a2d8ba7befe0f9afcbdbd` |
-| `payrollVault` | `0x5befe6a1a38881eb1e2be092c1dd730f45811801` |
-| `payrollClaimStore` | `0xea79652ea1c5a053e86f9433d86016a1358b6bb2` |
-| `payrollCampaignFacade` (runId 1) | `0x458851b4f87C9B2cdb53A9Fb0DB3f4189584dF67` |
-| `privatePayrollCoti` | `0x0483a18becb2b1311b7fee7be7168bc2356f3b8a` |
-| `comptroller` | `0xc444ea253dfc8ab8fd9eacd4c8e140975d891eb0` |
+| `payrollCampaignFactory` | `0x17cad9fce18ef750e8626c2d1ee9be97f3d375e5` |
+| `payrollVault` | `0xd43b8c9015565f3c3f453e574418e17302c73dd9` |
+| `payrollClaimStore` | `0x3b765d5d29093c08236566d954f52eaadfe5a4a2` |
+| `payrollCampaignFacade` (runId 1) | `0x401b9514a3CCA82c790d7F360F28C1B33F04227D` |
+| `privatePayrollCoti` | `0xeddbb52a6b92db6ba088c39a96dd0b1a76082ecb` |
+| `comptroller` | `0x79f8cc90e9a1ce76335e75bc057ed6b446679010` |
 | `pToken` (pMTT) | `0x8F34570CEAD49273D5DA8A0E25e728eCC28af267` |
 | `underlying` (MTT) | `0x328e70e1c52662cd5f19f824fcb8b463d77a6686` |
 | `privacyPortal` | `0x64D99D761aC68D1a495B4f7E5bE7277586EDFE78` |
@@ -53,16 +59,30 @@ Manifest snapshot (`updatedAt` `2026-07-19T18:26:33.219Z`, `mode` production):
 | `mpcExecutor` | `0x68e151b78d51cea01eef6ee354579e044606a739` |
 | `owner` / `cotiOwner` | `0xdf9f8fca4591227c092fcbab45a846c19fb6d1ae` |
 
-Fees from the same manifest (also readable on the wired facade):
+## Fees — no stored constants
 
-| Fee | Wei |
-|-----|-----|
-| `inboxFeeWei` | `1000968000000001` |
-| `callbackFeeWei` | `979128000000001` |
-| `pTokenTransferFeeWei` | `181739871082847` |
-| `pTokenCallbackFeeWei` | `175012102621895` |
+The 2026-07-19 manifest still had baked-in fee constants (`inboxFeeWei`,
+`callbackFeeWei`, `pTokenTransferFeeWei`, `pTokenCallbackFeeWei`) readable directly off
+the vault/facade. **The 2026-07-20 redeploy removed all of them** —
+`PayrollVault.setInboxFees`/`inboxFeeWei`/`payoutCallbackFeeWei` no longer exist on the
+contract at all. In their place:
 
-Wired in the UI: `src/config/contracts.ts`.
+- `PayrollVault.estimateFee()` — a live view function returning
+  `(totalFeeWei, targetFeeWei, callbackFeeWei)`, computed from the inbox's oracle
+  prices × `tx.gasprice` at call time. It reads `tx.gasprice` implicitly, so a bare
+  `eth_call` (which defaults to gas price `0`) returns all zeros — the caller must
+  supply a real gas price.
+- Since viem's `readContract` has no way to override an `eth_call`'s gas price, the UI
+  doesn't call `estimateFee()` directly. `src/lib/podFees.ts`'s `estimateVaultTwoWayFees`
+  instead calls the inbox's underlying `calculateTwoWayFeeRequiredInLocalToken` the same
+  way `computePTokenTwoWayFees` already did for pToken fees — gas price passed as an
+  explicit function argument, using the vault's own `FEE_ESTIMATE_*` size/gas constants
+  (`4096` bytes / `600_000` gas for both legs) — then pads the result 5%.
+- `requestCreditPool`/`clawback` don't recompute fees on-chain the way claims do (see
+  below), so the caller must pass the *exact* `callbackFeeWei` alongside `msg.value` —
+  get both from the same `estimateVaultTwoWayFees()` call.
+
+Wired in the UI: `src/config/contracts.ts` (addresses), `src/lib/podFees.ts` (fees).
 
 ---
 
@@ -82,7 +102,7 @@ sequenceDiagram
   Emp->>pToken: transfer facade, amount, callbackFee value transferFee
   pToken->>Inbox: async settle
   Inbox-->>pToken: Transfer credited on facade
-  Emp->>Facade: requestCreditPool amount value inboxFeeWei
+  Emp->>Facade: requestCreditPool amount, callbackFeeWei value totalFeeWei
   Facade->>Inbox: vault → COTI creditPool
   COTI-->>Facade: onPoolCredited
   Note over Facade: poolCreditedTotal += amount
@@ -92,8 +112,8 @@ sequenceDiagram
 2. **Public fund transfer** — `pToken.transfer(facade, amount, pTokenCallbackFeeWei)` with
    `value: pTokenTransferFeeWei` (compute via `computePTokenTwoWayFees`).
 3. **Wait settle** — `Transfer` event `from=funder to=facade` (not merely “pending cleared”).
-4. **Credit pool** — campaign **admin** calls `requestCreditPool(amount)` with
-   `value: facade.inboxFeeWei()` (admin-only).
+4. **Credit pool** — campaign **admin** calls `requestCreditPool(amount, callbackFeeWei)`
+   with `value: totalFeeWei` (both quoted live via `estimateVaultTwoWayFees`; admin-only).
 5. **Wait callback** — `PoolCredited` and/or `poolCreditedTotal >= previous + amount`.
 6. **Optional** — native AVAX top-up on the facade for later inbox spends.
 
@@ -105,15 +125,15 @@ Test: `tests/testnet/fundCampaign.test.ts`
 
 ## Status matrix (post-iter08)
 
-| Step | Live Fuji (prior) | Expected now | Notes |
-|------|-------------------|--------------|-------|
-| Create campaign (factory) | OK | OK | New factory address; create still needs COTI register |
-| Portal deposit / mint | OK | OK | Public-amount mint |
-| Public `pToken.transfer` settle | OK | OK | Preferred fund path |
-| Encrypted `pToken.transfer(itUint256)` | BROKEN | BROKEN | No callback in 300s retest — leave pending; do not use for fund |
-| `ackPoolCredit` + Fuji `0x64` | BROKEN | **N/A removed** | Root cause of prior “partial” status |
-| `requestCreditPool` → COTI → `PoolCredited` | N/A | **Retest** | Wired in UI/tests; sim green |
-| Claim / public `payoutTo` | Blocked by pool | **Retest after fund** | Claim path also redesigned in iter08 |
+| Step | Status | Notes |
+|------|--------|-------|
+| Create campaign (factory) | OK | Create still needs COTI register |
+| Portal deposit / mint | OK | Public-amount mint |
+| Public `pToken.transfer` settle | OK | Preferred fund path |
+| Encrypted `pToken.transfer(itUint256)` | BROKEN | No callback in 300s retest — leave pending; do not use for fund |
+| `ackPoolCredit` + Fuji `0x64` | **N/A removed** | Root cause of prior “partial” status; function no longer exists on the facade at all as of 2026-07-20 |
+| `requestCreditPool` → COTI → `PoolCredited` | **OK** | Confirmed live 2026-07-20 (2-arg signature: `amount, callbackFeeWei`) |
+| Claim / public `payoutTo` | **OK** | Fixed 2026-07-20 — see [claimCampaign.md](./claimCampaign.md) |
 
 ---
 
@@ -135,9 +155,11 @@ documented in pod-dapp-ports.
    mining; UI/tests wait up to 300s.
 3. **Admin vs funder** — anyone can transfer pTokens to the facade; only `admin` can
    `requestCreditPool`. The UI hook uses the connected wallet for both steps.
-4. **Facade native AVAX** — each claim spends `inboxFeeWei` from the **facade balance**
-   (not the claimant’s msg.value). Fund UI tops up 0.1 AVAX by default; campaigns funded
-   only via the test harness may have `0` and need a manual top-up before claim.
+4. **Facade native AVAX** — each claim spends the live-quoted inbox fee
+   (`PayrollVault.estimateFee()`, computed on-chain at claim time) from the **facade
+   balance** (not the claimant's msg.value). Fund UI tops up 0.1 AVAX by default;
+   campaigns funded only via the test harness may have `0` and need a manual top-up
+   before claim.
 5. **Stuck pending accounts** — rotate `PAYROLL_TEST_FUNDER_SALT` if a prior failed IT
    transfer locked a funder.
 
@@ -147,18 +169,23 @@ documented in pod-dapp-ports.
 
 ```bash
 # Factory → vault (iter08)
-cast call 0x4d2613a8fa165a54171a2d8ba7befe0f9afcbdbd "vault()(address)" \
+cast call 0x17cad9fce18ef750e8626c2d1ee9be97f3d375e5 "vault()(address)" \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
-# → 0x5befe6a1a38881eb1e2be092c1dd730f45811801
+# → 0xd43b8c9015565f3c3f453e574418e17302c73dd9
 
-# Reference facade: no ackPoolCredit; has requestCreditPool + poolCreditedTotal
-cast call 0x458851b4f87C9B2cdb53A9Fb0DB3f4189584dF67 "inboxFeeWei()(uint256)" \
+# Vault: live fee quote (estimateFee reads tx.gasprice — pass a real one or you get all
+# zeros back). --gas-price sets the eth_call's gas price, not an actual tx fee paid.
+cast call 0xd43b8c9015565f3c3f453e574418e17302c73dd9 \
+  "estimateFee()(uint256,uint256,uint256)" \
+  --gas-price 2000000000 \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
-cast call 0x458851b4f87C9B2cdb53A9Fb0DB3f4189584dF67 "poolCreditedTotal()(uint256)" \
+
+# Reference facade: no ackPoolCredit / no inboxFeeWei; has requestCreditPool + poolCreditedTotal
+cast call 0x401b9514a3CCA82c790d7F360F28C1B33F04227D "poolCreditedTotal()(uint256)" \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
 
 # COTI twin
-cast call 0x0483a18becb2b1311b7fee7be7168bc2356f3b8a "owner()(address)" \
+cast call 0xeddbb52a6b92db6ba088c39a96dd0b1a76082ecb "owner()(address)" \
   --rpc-url https://testnet.coti.io/rpc
 ```
 
