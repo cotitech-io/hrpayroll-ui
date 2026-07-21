@@ -33,9 +33,8 @@ import {
 // amount on the wire, private balances still garbled on-chain.
 //
 // iter08 (2026-07-19): ackPoolCredit / local Fuji MpcCore at 0x64 are gone. After settle,
-// the campaign admin calls requestCreditPool(amount, callbackFeeWei) with the live two-way
-// fee quoted via estimateVaultTwoWayFees(); COTI creditPool callbacks onPoolCredited and
-// increments poolCreditedTotal.
+// the campaign admin calls requestCreditPool(amount) with inboxFeeWei; COTI creditPool
+// callbacks onPoolCredited and increments poolCreditedTotal.
 //
 // If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
@@ -207,9 +206,10 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       label: 'fund transfer to facade',
     })
 
-    // requestCreditPool: campaign admin (employer) pays the live two-way inbox fee quoted via
-    // estimateVaultTwoWayFees(); COTI creditPool callbacks onPoolCredited. No local AES IT /
-    // MpcCore on Fuji (iter08).
+    // requestCreditPool: campaign admin (employer) pays the two-way inbox fee; COTI
+    // creditPool callbacks onPoolCredited. No local AES IT / MpcCore on Fuji (iter08).
+    // The old setInboxFees/inboxFeeWei/payoutCallbackFeeWei constants are gone — fee is
+    // quoted live via estimateVaultTwoWayFees, same as fundCampaignOnChain in helpers.ts.
     const facade = {
       address: campaign.facadeAddress,
       abi: avaxContracts.payrollCampaignFacade.abi,
@@ -220,7 +220,7 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     })
     const { totalFeeWei, callbackFeeWei } = await estimateVaultTwoWayFees(fujiPublic)
     console.info(
-      `[testnet] requestCreditPool amount=${FUND_TOTAL} totalFeeWei=${totalFeeWei} callbackFeeWei=${callbackFeeWei} ` +
+      `[testnet] requestCreditPool amount=${FUND_TOTAL} totalFeeWei=${totalFeeWei} ` +
         `employer=${employer.account.address} facade=${campaign.facadeAddress}`,
     )
     const creditHash = await employer.fujiWallet.writeContract({

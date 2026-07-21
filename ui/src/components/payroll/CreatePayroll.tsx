@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trash2, Upload, Plus, Rocket } from 'lucide-react'
 import { Button } from '../ui/button'
 import { toRoster, type RosterRow } from '../../lib/roster'
 import type { RosterEntry } from '../../lib/merkle'
@@ -21,45 +22,98 @@ export function CreatePayroll({
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false)
 
   const roster = toRoster(rows.filter((r) => r.recipient.trim() && r.amount.trim()))
+  const totalAmount = roster.reduce((acc, r) => acc + Number(r.amount || 0), 0)
+
+  const clear = () => {
+    setRows([{ recipient: '', amount: '' }])
+    setCampaignName('')
+  }
 
   return (
     <>
-      <div className="rounded-2xl border border-black/[0.04] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
-        <h2 className="font-bold" style={{ marginTop: 0 }}>Add Payroll</h2>
-
-        <label>
-          <input
-            type="text"
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary"
-            value={campaignName}
-            onChange={(e) => setCampaignName(e.target.value)}
-            placeholder="Payroll name"
-          />
-        </label>
-
-        <h2 style={{ marginTop: '2rem' }}>Roster</h2>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <RosterEditor rows={rows} onChange={setRows} />
-          <div className="flex gap-2 mt-2">
-            <Button
+      <div className="space-y-6">
+        {/* Section 1 — Campaign details */}
+        <section className="rounded-3xl border border-white/5 bg-[#151828]/80 pt-0 px-6 pb-6 sm:px-8 sm:pb-8 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset]">
+          <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="flex-1 min-w-0 max-w-md">
+              <label className="block text-sm font-medium text-foreground mb-1 mt-0">Campaign name</label>
+              <p className="text-xs text-muted-foreground mb-3">Stored locally with your claim packages.</p>
+              <input
+                type="text"
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="e.g., Q1 Payroll"
+                className="w-full rounded-xl border border-white/5 bg-black/30 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20 transition"
+              />
+            </div>
+            <button
               type="button"
-              variant="secondary"
-              onClick={() => setRows((prev) => [...prev, { recipient: '', amount: '' }])}
+              onClick={clear}
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
             >
-              Add row
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => setIsCsvModalOpen(true)}>
-              Paste CSV
-            </Button>
+              <Trash2 className="h-4 w-4" />
+              Clear
+            </button>
+          </header>
+        </section>
+
+        {/* Section 2 — Roster */}
+        <section className="rounded-3xl border border-white/5 bg-[#151828]/80 pt-0 px-6 pb-6 sm:px-8 sm:pb-8">
+          <header className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-foreground m-0">
+              Roster
+            </h2>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCsvModalOpen(true)}
+                className="gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                Paste CSV
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRows((prev) => [...prev, { recipient: '', amount: '' }])}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add row
+              </Button>
+            </div>
+          </header>
+
+          <div className="rounded-2xl border border-white/5 bg-black/20 p-4 sm:p-5">
+            <RosterEditor rows={rows} onChange={setRows} />
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              <span className="text-foreground font-medium">{roster.length}</span> recipient{roster.length === 1 ? '' : 's'}
+              <span className="mx-2 text-white/20">•</span>
+              <span className="text-foreground font-medium">{totalAmount.toLocaleString()}</span> pMTT total
+            </div>
             <Button
               type="button"
-              disabled={!canDeploy || roster.length === 0 || isDeploying}
+              disabled={roster.length === 0 || isDeploying}
               onClick={() => onDeploy({ roster, campaignName })}
+              className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6"
             >
-              {isDeploying ? 'Deploying…' : 'Deploy Payroll'}
+              <Rocket className="h-4 w-4" />
+              {isDeploying ? 'Deploying…' : 'Deploy payroll'}
             </Button>
           </div>
-        </div>
+
+          {!canDeploy && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Deploying will unlock private access first.
+            </p>
+          )}
+        </section>
       </div>
 
       <RosterCsvModal open={isCsvModalOpen} onClose={() => setIsCsvModalOpen(false)} onApply={setRows} />

@@ -1,0 +1,325 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * HR Payroll design tokens — ported from vendor/hrpayroll-ui/src/index.css.
+ * Tailwind v4 form: shadcn HSL variables on :root/.dark, mapped to
+ * @theme inline so utilities such as `bg-primary`, `text-foreground`,
+ * `border-border` resolve correctly.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Obsidian dawn palette — dark base with orange accent (#FF9100). */
+  --background: 230 34% 7%;
+  --foreground: 0 0% 100%;
+  --card: 230 30% 12%;
+  --card-foreground: 0 0% 100%;
+  --popover: 230 30% 12%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 30 100% 50%;
+  --primary-foreground: 0 0% 5%;
+  --secondary: 230 25% 18%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 230 25% 16%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 30 100% 50%;
+  --accent-foreground: 0 0% 5%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 230 25% 18%;
+  --input: 230 25% 18%;
+  --ring: 30 100% 50%;
+  --radius: 1rem;
+
+  --portal-cyan: 190 100% 42%;
+  --portal-purple: 270 80% 55%;
+  --portal-pink: 320 100% 55%;
+  --void: 230 34% 7%;
+
+  --body-bg-image: radial-gradient(1200px 600px at 85% -10%, rgba(255, 145, 0, 0.06), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(255, 92, 0, 0.05), transparent 60%),
+    linear-gradient(180deg, #0B0D17 0%, #090B14 100%);
+
+  --overlay: rgba(0, 0, 0, 0.7);
+  --overlay-blur: rgba(0, 0, 0, 0.55);
+  --overlay-subtle: rgba(0, 0, 0, 0.25);
+
+  --glass-bg: linear-gradient(145deg, hsla(230, 30%, 14%, 0.85), hsla(230, 30%, 10%, 0.9));
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-purple-bg: linear-gradient(145deg, hsla(30, 100%, 14%, 0.6), hsla(230, 30%, 10%, 0.9));
+  --glass-purple-border: rgba(255, 145, 0, 0.25);
+  --glass-panel-bg: linear-gradient(180deg, hsl(230 30% 14%) 0%, hsl(230 34% 9%) 100%);
+  --glass-panel-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: 20px;
+
+  --text-glow-shadow: 0 0 20px hsla(30, 100%, 50%, 0.25), 0 0 40px hsla(30, 100%, 50%, 0.15);
+  --text-glow-purple-shadow: 0 0 20px hsla(270, 80%, 55%, 0.2), 0 0 40px hsla(270, 80%, 55%, 0.12);
+  --box-glow-shadow: 0 0 24px hsla(30, 100%, 50%, 0.15), 0 0 48px hsla(30, 100%, 50%, 0.08), inset 0 1px 0 rgba(255,255,255,0.04);
+  --box-glow-purple-shadow: 0 0 24px hsla(270, 80%, 55%, 0.1), 0 0 48px hsla(270, 80%, 55%, 0.05), inset 0 1px 0 rgba(255,255,255,0.04);
+
+  --scrollbar-thumb: hsl(30, 100%, 50%);
+  --scrollbar-thumb-hover: hsl(215, 20%, 65%);
+
+  --rk-connect-title-color: hsl(0, 0%, 100%);
+
+  --modal-compact-bg: #111422;
+  --dropdown-bg: #151828;
+  --panel-outline: rgba(255, 255, 255, 0.08);
+  --chip-bg: rgba(255, 255, 255, 0.05);
+  --modal-inset-bg: #0f1220;
+  --modal-dropdown-bg: #151828;
+  --modal-cta-bg: rgba(255, 145, 0, 0.12);
+  --step-line: rgba(255, 255, 255, 0.12);
+
+  --color-success: hsl(142, 71%, 45%);
+  --color-success-muted: hsla(142, 71%, 45%, 0.2);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: 232 40% 8%;
+  --foreground: 210 40% 98%;
+  --card: 230 40% 14%;
+  --card-foreground: 210 40% 98%;
+  --popover: 230 40% 12%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 190 100% 50%;
+  --primary-foreground: 230 40% 10%;
+  --secondary: 320 100% 60%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 230 30% 20%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 190 100% 40%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 230 30% 20%;
+  --input: 230 30% 20%;
+  --ring: 190 100% 50%;
+
+  --body-bg-image: linear-gradient(155deg, #05081d 0%, #0a1030 60%, #05081d 100%);
+
+  --overlay: rgba(0, 0, 0, 0.8);
+  --overlay-blur: rgba(0, 0, 0, 0.6);
+  --overlay-subtle: rgba(0, 0, 0, 0.2);
+
+  --glass-bg: linear-gradient(145deg, hsla(230, 40%, 16%, 0.8), hsla(230, 40%, 12%, 0.9));
+  --glass-border: hsla(230, 40%, 30%, 0.3);
+  --glass-panel-bg: linear-gradient(180deg, #1e29f6 0%, #04133d 100%);
+  --glass-panel-border: rgba(255, 255, 255, 0.1);
+
+  --scrollbar-thumb: hsla(190, 100%, 50%, 1);
+  --scrollbar-thumb-hover: hsla(215, 20%, 65%, 0.5);
+
+  --rk-connect-title-color: hsl(210, 40%, 98%);
+  --modal-compact-bg: #0a1030;
+  --dropdown-bg: #0a1656;
+  --panel-outline: hsl(230 30% 20%);
+  --chip-bg: rgba(0, 0, 0, 0.8);
+  --modal-inset-bg: #071848;
+  --modal-dropdown-bg: #0a1656;
+  --modal-cta-bg: rgba(26, 42, 108, 0.8);
+  --step-line: rgba(255, 255, 255, 0.15);
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background-image: var(--body-bg-image);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: scroll;
+  }
+
+  @media (min-width: 768px) {
+    body {
+      background-attachment: fixed;
+    }
+  }
+}
+
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility text-glow {
+  text-shadow: var(--text-glow-shadow);
+}
+@utility text-glow-purple {
+  text-shadow: var(--text-glow-purple-shadow);
+}
+@utility box-glow {
+  box-shadow: var(--box-glow-shadow);
+}
+@utility box-glow-purple {
+  box-shadow: var(--box-glow-purple-shadow);
+}
+
+@utility glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+}
+@utility glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+}
+@utility glass-purple {
+  background: var(--glass-purple-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-purple-border);
+}
+@utility glass-panel {
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-panel-border);
+}
+
+@utility panel-outline {
+  border: 1px solid var(--panel-outline);
+}
+
+@utility chip-bg {
+  background: var(--chip-bg);
+}
+
+@utility modal-overlay {
+  background-color: var(--overlay);
+}
+@utility modal-overlay-blur {
+  background-color: var(--overlay-blur);
+  backdrop-filter: blur(4px);
+}
+@utility modal-shell {
+  border-radius: 24px;
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-panel-border);
+  color: hsl(var(--foreground));
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+}
+@utility modal-compact {
+  background: var(--modal-compact-bg);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+@utility modal-inset {
+  background: var(--modal-inset-bg);
+  border: 1px solid hsl(var(--border));
+}
+@utility modal-cta {
+  background: var(--modal-cta-bg);
+  border: 1px solid hsl(var(--border));
+}
+
+@utility btn-gradient-connect {
+  background: linear-gradient(90deg, #1e29f6 0%, #00e5ff 100%);
+  color: white;
+  &:hover {
+    opacity: 0.9;
+  }
+}
+@utility btn-gradient-wallet {
+  background: linear-gradient(90deg, #8a50f5 0%, #f048a4 100%);
+  color: white;
+  &:hover {
+    opacity: 0.9;
+  }
+}
+
+@utility step-line {
+  background: var(--step-line);
+}
+
+@utility text-success {
+  color: var(--color-success);
+}
+@utility bg-success-muted {
+  background: var(--color-success-muted);
+}
+
+@utility custom-scrollbar {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+}
+
+@utility font-display {
+  font-family: "Inter", sans-serif;
+}
+
+/* RainbowKit modal title override: "Connect a Wallet" -> "COTI Wallet" */
+#rk_connect_title {
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+#rk_connect_title::after {
+  content: "COTI Wallet";
+  font-size: 20px;
+  line-height: 1.4;
+  color: var(--rk-connect-title-color);
+}

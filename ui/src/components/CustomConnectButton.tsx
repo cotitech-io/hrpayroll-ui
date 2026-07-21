@@ -19,9 +19,10 @@ export function CustomConnectButton() {
               type="button"
               onClick={openConnectModal}
               aria-hidden={!ready}
-              className="rounded-xl bg-[#1E29F6] px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#1E29F6]/90"
+              className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-violet-500 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 ring-1 ring-inset ring-white/15 transition-all hover:from-violet-400 hover:to-indigo-500 hover:shadow-violet-700/50"
             >
               Connect Wallet
+              <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
             </button>
           )
         }

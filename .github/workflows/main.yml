@@ -1,0 +1,67 @@
+name: Deploy HR-Payroll-UI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ${{ fromJSON(vars.NODE_VERSION || '["22.15.1"]') }}
+    environment:
+      name: ${{ github.ref_name }}
+    defaults:
+      run:
+        working-directory: ui
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      BUCKET_NAME: ${{ vars.BUCKET_NAME }}
+      BUILD_DIR: ${{ vars.BUILD_DIR || 'dist/client' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ui/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('ui/package-lock.json') }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: |
+          if [ -e node_modules ]; then
+            echo "Using cached node_modules directory."
+          else
+            echo "Installing dependencies..."
+            npm install
+          fi
+
+      - name: Build UI
+        env:
+          VITE_WALLETCONNECT_PROJECT_ID: ${{ secrets.VITE_WALLETCONNECT_PROJECT_ID }}
+        run: npm run build
+
+      - name: Deploy app build to S3 bucket
+        run: |
+          aws s3 sync "$BUILD_DIR/" "s3://$BUCKET_NAME/" --delete
+
+      - name: Invalidate CloudFront distribution
+        run: |
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_DISTRIBUTION_ID }} --paths "/*"

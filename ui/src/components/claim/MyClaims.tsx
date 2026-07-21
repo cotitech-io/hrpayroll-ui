@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import { parseUnits, type Hex } from 'viem'
+import { Wallet, Hash, Calendar, Coins } from 'lucide-react'
 import { InlineError } from '../InlineError'
 import { Button } from '../ui/button'
+import { AddressLink } from '../AddressLink'
 import { useVaultCampaignRosters } from '../../hooks/useVaultCampaignRosters'
 import { useClaimFlow } from '../../hooks/useClaimFlow'
 import { buildClaimPackageForIndex } from '../../lib/claimPackage'
-import { formatPMtt, PTOKEN_DECIMALS, shortAddr } from '../../lib/format'
+import { formatPMtt, PTOKEN_DECIMALS } from '../../lib/format'
 
 type MyClaimRow = {
   key: string
@@ -24,17 +26,25 @@ type MyClaimRow = {
   roster: Array<{ index: number; recipient: Hex; amountCommitment: Hex }>
 }
 
+function Chip({ icon, children }: { icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/5 bg-white/[0.04] px-2.5 py-1 text-xs text-slate-300">
+      {icon}
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}
+
 /**
  * Primary employee claim UX — no JSON.
- * Wallet address finds your roster rows; proofs are rebuilt from on-chain commitments;
- * you only confirm the plaintext amount (salary) the organization registered for you.
+ * Card-grid layout matching /organization/runs.
  */
 export function MyClaims({ unlocked }: { unlocked: boolean }) {
   const { address } = useAccount()
   const queryClient = useQueryClient()
   const rosters = useVaultCampaignRosters()
   const [amounts, setAmounts] = useState<Record<string, string>>({})
-  const [payoutTo, setPayoutTo] = useState('')
+  const [payoutTos, setPayoutTos] = useState<Record<string, string>>({})
   const [stage, setStage] = useState<string | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -95,10 +105,11 @@ export function MyClaims({ unlocked }: { unlocked: boolean }) {
         index: row.index,
         amount,
       })
+      const payoutTo = (payoutTos[row.key] ?? '').trim()
       claim.mutate(
         {
           pkg,
-          payoutTo: (payoutTo.trim() || undefined) as Hex | undefined,
+          payoutTo: (payoutTo || undefined) as Hex | undefined,
         },
         {
           onSuccess: () => {
@@ -111,115 +122,188 @@ export function MyClaims({ unlocked }: { unlocked: boolean }) {
     }
   }
 
-  if (rosters.isLoading) return <p>Looking up payrolls for your wallet…</p>
+  if (rosters.isLoading) {
+    return <p className="text-sm text-slate-400">Looking up payrolls for your wallet…</p>
+  }
   if (rosters.error) return <InlineError>{(rosters.error as Error).message}</InlineError>
 
   if (mine.length === 0) {
     return (
-      <section style={{ margin: '1.25rem 0' }}>
-        <h2 style={{ fontSize: '1.15rem' }}>Your claims</h2>
-        <p style={{ opacity: 0.75 }}>
-          No payroll roster entries match <code>{address}</code> on this vault. Connect the
-          wallet your organization registered, or ask them to confirm your address.
-        </p>
-      </section>
+      <div className="rounded-2xl border border-dashed border-white/10 bg-[#151828] px-5 py-10 text-center text-sm text-slate-300">
+        No payroll roster entries match <code className="text-slate-400">{address}</code> on this
+        vault. Connect the wallet your organization registered, or ask them to confirm your address.
+      </div>
     )
   }
 
   return (
-    <section style={{ margin: '1.25rem 0' }}>
-      <h2 style={{ fontSize: '1.15rem' }}>Your claims</h2>
+    <>
+      <div className="mb-4">
+        <p className="text-sm text-slate-400">
+          {mine.length} claim{mine.length === 1 ? '' : 's'} on{' '}
+          <span className="inline-flex items-center gap-1.5 text-slate-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+            Avalanche Fuji
+          </span>
+        </p>
+      </div>
 
-      <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
-        Send payout to a different address (optional)
-        <input
-          type="text"
-          style={{ width: '100%' }}
-          value={payoutTo}
-          onChange={(e) => setPayoutTo(e.target.value)}
-          placeholder="Leave blank to receive in this wallet"
-        />
-      </label>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div className="grid gap-4 lg:grid-cols-2">
         {mine.map((row) => {
           const human = amountFor(row)
           const blocked =
             !unlocked || row.hasClaimed || row.hasExpired || !row.funded || !human.trim()
           const isActive = activeKey === row.key && claim.isPending
+          const progress = row.hasClaimed ? 100 : 0
+
           return (
             <div
               key={row.key}
-              style={{
-                border: '1px solid var(--border, #333)',
-                borderRadius: 8,
-                padding: '0.75rem 1rem',
-              }}
+              className="flex flex-col rounded-2xl border border-white/5 bg-[#151828] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
             >
-              <div style={{ fontWeight: 600 }}>{row.campaignName}</div>
-              <div style={{ opacity: 0.75, fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-                runId {row.runId.toString()} · {shortAddr(row.facadeAddress)} · index {row.index}
-                {row.funded ? ' · funded' : ' · not funded yet'}
-                {row.hasExpired ? ' · expired' : ''}
-                {row.hasClaimed ? ' · already claimed' : ''}
+              {/* Header */}
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-violet-500/20 to-indigo-500/10 text-violet-300">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Your claim</p>
+                  <p className="mt-0.5 truncate text-lg font-semibold text-white">
+                    {row.campaignName || `Run #${row.runId.toString()}`}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  {row.hasClaimed ? (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                      Claimed
+                    </span>
+                  ) : row.hasExpired ? (
+                    <span className="rounded-full bg-slate-500/15 px-2.5 py-1 text-xs font-medium text-slate-300">
+                      Expired
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                      Active
+                    </span>
+                  )}
+                  {row.funded ? (
+                    <span className="rounded-full bg-indigo-500/15 px-2.5 py-1 text-xs font-medium text-indigo-300">
+                      Funded
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-orange-500/15 px-2.5 py-1 text-xs font-medium text-orange-400">
+                      Not funded
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <label style={{ fontSize: '0.9rem' }}>
-                Amount (pMTT)
-                <input
-                  type="text"
-                  style={{ width: '8rem', display: 'block', marginTop: 4 }}
-                  value={human}
-                  disabled={row.hasClaimed}
-                  onChange={(e) => setAmounts((prev) => ({ ...prev, [row.key]: e.target.value }))}
-                  placeholder="250"
-                />
-              </label>
-              {row.knownAmount !== undefined && (
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.65 }}>
-                  Known from this browser: {formatPMtt(row.knownAmount)} pMTT
-                </p>
-              )}
+              {/* Chips */}
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Chip icon={<Hash className="h-3 w-3" />}>#{row.runId.toString()}</Chip>
+                <Chip>
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                  Avalanche · Fuji
+                </Chip>
+                <Chip>
+                  <AddressLink address={row.facadeAddress} />
+                </Chip>
+                <Chip icon={<Calendar className="h-3 w-3" />}>Index {row.index}</Chip>
+                {row.knownAmount !== undefined && (
+                  <Chip icon={<Coins className="h-3 w-3" />}>
+                    {formatPMtt(row.knownAmount)} pMTT
+                  </Chip>
+                )}
+              </div>
 
-              <Button
-                type="button"
-                className="mt-2"
-                disabled={blocked || claim.isPending}
-                onClick={() => handleClaim(row)}
-              >
-                {isActive ? 'Claiming…' : row.hasClaimed ? 'Claimed' : 'Claim'}
-              </Button>
+              {/* Inputs */}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs font-medium text-slate-400">
+                  Amount (pMTT)
+                  <input
+                    type="text"
+                    className="rounded-xl border border-white/10 bg-[#0f1120] px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-orange-500/50 focus:outline-none disabled:opacity-50"
+                    value={human}
+                    disabled={row.hasClaimed}
+                    onChange={(e) =>
+                      setAmounts((prev) => ({ ...prev, [row.key]: e.target.value }))
+                    }
+                    placeholder="250"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-medium text-slate-400">
+                  Payout address (optional)
+                  <input
+                    type="text"
+                    className="rounded-xl border border-white/10 bg-[#0f1120] px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-orange-500/50 focus:outline-none disabled:opacity-50"
+                    value={payoutTos[row.key] ?? ''}
+                    disabled={row.hasClaimed}
+                    onChange={(e) =>
+                      setPayoutTos((prev) => ({ ...prev, [row.key]: e.target.value }))
+                    }
+                    placeholder="Leave blank for this wallet"
+                  />
+                </label>
+              </div>
 
-              {!row.funded && (
-                <p style={{ color: 'orange', fontSize: '0.85rem' }}>Waiting for organization funding.</p>
-              )}
-              {row.hasExpired && !row.hasClaimed && (
-                <p style={{ color: 'orange', fontSize: '0.85rem' }}>Campaign expired.</p>
-              )}
-              {!unlocked && (
-                <p style={{ fontSize: '0.85rem', opacity: 0.75 }}>Unlock private access to claim.</p>
-              )}
-              {!human.trim() && !row.hasClaimed && (
-                <p style={{ fontSize: '0.85rem', opacity: 0.75 }}>
-                  Enter the amount your organization told you (must match the registered payroll).
-                </p>
-              )}
+              {/* Bottom bar */}
+              <div className="mt-5 flex items-center gap-3 rounded-2xl border border-white/5 bg-[#0f1120] p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/5">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-violet-500 to-violet-400 transition-all"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    Claimed: <span className="font-semibold text-white">{progress}%</span>
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl bg-orange-500 px-4 text-white hover:bg-orange-500/90"
+                    disabled={blocked || claim.isPending}
+                    onClick={() => handleClaim(row)}
+                  >
+                    {isActive ? 'Claiming…' : row.hasClaimed ? 'Claimed' : 'Claim'}
+                  </Button>
+                </div>
+              </div>
 
-              {isActive && stage && <p style={{ opacity: 0.75 }}>{stage}</p>}
-              {activeKey === row.key && localError && <InlineError>{localError}</InlineError>}
-              {activeKey === row.key && claim.error && (
-                <InlineError>{(claim.error as Error).message}</InlineError>
-              )}
-              {activeKey === row.key && claim.data?.status === 'completed' && (
-                <p style={{ color: 'green' }}>Claim completed.</p>
-              )}
-              {activeKey === row.key && claim.data?.status === 'pending' && (
-                <p style={{ color: 'orange' }}>{claim.data.message}</p>
-              )}
+              {/* Status messages */}
+              <div className="mt-3 space-y-1 text-xs">
+                {!row.funded && (
+                  <p className="text-orange-400">Waiting for organization funding.</p>
+                )}
+                {row.hasExpired && !row.hasClaimed && (
+                  <p className="text-orange-400">Campaign expired.</p>
+                )}
+                {!unlocked && (
+                  <p className="text-slate-400">Unlock private access to claim.</p>
+                )}
+                {!human.trim() && !row.hasClaimed && (
+                  <p className="text-slate-400">
+                    Enter the amount your organization told you (must match the registered payroll).
+                  </p>
+                )}
+                {isActive && stage && <p className="text-slate-400">{stage}</p>}
+                {activeKey === row.key && localError && <InlineError>{localError}</InlineError>}
+                {activeKey === row.key && claim.error && (
+                  <InlineError>{(claim.error as Error).message}</InlineError>
+                )}
+                {activeKey === row.key && claim.data?.status === 'completed' && (
+                  <p className="text-emerald-400">Claim completed.</p>
+                )}
+                {activeKey === row.key && claim.data?.status === 'pending' && (
+                  <p className="text-orange-400">{claim.data.message}</p>
+                )}
+              </div>
             </div>
           )
         })}
       </div>
-    </section>
+    </>
   )
 }

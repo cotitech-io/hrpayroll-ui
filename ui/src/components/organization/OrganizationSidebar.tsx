@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink } from '@/lib/router-compat'
 import { LayoutDashboard, List, Plus, Gem } from 'lucide-react'
 import { useAccount, useBalance } from 'wagmi'
 import { avalancheFuji } from 'viem/chains'
