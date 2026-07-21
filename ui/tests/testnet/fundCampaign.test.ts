@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { concatHex, getAbiItem, keccak256, toHex, zeroAddress, type Hex } from 'viem'
 import { avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
-import { computePTokenTwoWayFees } from '../../src/lib/podFees'
+import { computePTokenTwoWayFees, estimateVaultTwoWayFees } from '../../src/lib/podFees'
 import type { RosterEntry } from '../../src/lib/merkle'
 import {
   PMTT,
@@ -33,8 +33,9 @@ import {
 // amount on the wire, private balances still garbled on-chain.
 //
 // iter08 (2026-07-19): ackPoolCredit / local Fuji MpcCore at 0x64 are gone. After settle,
-// the campaign admin calls requestCreditPool(amount) with inboxFeeWei; COTI creditPool
-// callbacks onPoolCredited and increments poolCreditedTotal.
+// the campaign admin calls requestCreditPool(amount, callbackFeeWei) with the live two-way
+// fee quoted via estimateVaultTwoWayFees(); COTI creditPool callbacks onPoolCredited and
+// increments poolCreditedTotal.
 //
 // If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
 //
@@ -206,8 +207,9 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       label: 'fund transfer to facade',
     })
 
-    // requestCreditPool: campaign admin (employer) pays inboxFeeWei; COTI creditPool
-    // callbacks onPoolCredited. No local AES IT / MpcCore on Fuji (iter08).
+    // requestCreditPool: campaign admin (employer) pays the live two-way inbox fee quoted via
+    // estimateVaultTwoWayFees(); COTI creditPool callbacks onPoolCredited. No local AES IT /
+    // MpcCore on Fuji (iter08).
     const facade = {
       address: campaign.facadeAddress,
       abi: avaxContracts.payrollCampaignFacade.abi,
@@ -216,19 +218,16 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
       ...facade,
       functionName: 'poolCreditedTotal',
     })
-    const inboxFeeWei = await fujiPublic.readContract({
-      ...facade,
-      functionName: 'inboxFeeWei',
-    })
+    const { totalFeeWei, callbackFeeWei } = await estimateVaultTwoWayFees(fujiPublic)
     console.info(
-      `[testnet] requestCreditPool amount=${FUND_TOTAL} inboxFeeWei=${inboxFeeWei} ` +
+      `[testnet] requestCreditPool amount=${FUND_TOTAL} totalFeeWei=${totalFeeWei} callbackFeeWei=${callbackFeeWei} ` +
         `employer=${employer.account.address} facade=${campaign.facadeAddress}`,
     )
     const creditHash = await employer.fujiWallet.writeContract({
       ...facade,
       functionName: 'requestCreditPool',
-      args: [FUND_TOTAL],
-      value: inboxFeeWei,
+      args: [FUND_TOTAL, callbackFeeWei],
+      value: totalFeeWei,
     })
     const creditReceipt = await fujiPublic.waitForTransactionReceipt({ hash: creditHash })
     expect(creditReceipt.status, `requestCreditPool reverted (tx ${creditHash})`).toBe('success')

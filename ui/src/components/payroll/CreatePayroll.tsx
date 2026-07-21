@@ -24,13 +24,13 @@ export function CreatePayroll({
 
   return (
     <>
-      <div className="bg-card border border-border rounded-lg p-4">
+      <div className="rounded-2xl border border-black/[0.04] bg-white p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
         <h2 className="font-bold" style={{ marginTop: 0 }}>Add Payroll</h2>
 
         <label>
           <input
             type="text"
-            style={{ width: '100%' }}
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary"
             value={campaignName}
             onChange={(e) => setCampaignName(e.target.value)}
             placeholder="Payroll name"
@@ -38,7 +38,7 @@ export function CreatePayroll({
         </label>
 
         <h2 style={{ marginTop: '2rem' }}>Roster</h2>
-        <div className="bg-card border border-border rounded-lg p-4">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
           <RosterEditor rows={rows} onChange={setRows} />
           <div className="flex gap-2 mt-2">
             <Button

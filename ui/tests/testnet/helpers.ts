@@ -43,10 +43,10 @@ export const FUJI_RPC = 'https://api.avax-test.network/ext/bc/C/rpc'
 export const COTI_RPC = 'https://testnet.coti.io/rpc'
 export const PMTT = 10n ** 18n // 1 pMTT in wei (18 decimals)
 
-// From deployments/production-payroll-avalancheFuji.json (2026-07-17). Test-seed infra only —
-// the UI itself never touches the portal or the public underlying, so these stay out of
-// src/config/contracts.ts.
-export const PRIVACY_PORTAL = '0x64D99D761aC68D1a495B4f7E5bE7277586EDFE78' as const
+// From deployments/production-payroll-avalancheFuji.json (2026-07-21; underlying unchanged
+// since 2026-07-17). Test-seed infra only — the UI itself never touches the portal or the
+// public underlying, so these stay out of src/config/contracts.ts.
+export const PRIVACY_PORTAL = '0xf4100d21eB4B1a66aDde58A01D1E32356F268b3F' as const
 export const UNDERLYING_MTT = '0x328e70e1c52662cd5f19f824fcb8b463d77a6686' as const
 
 export const portalAbi = parseAbi([

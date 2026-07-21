@@ -30,7 +30,7 @@ export function RosterEditor({
             <td>
               <input
                 type="text"
-                style={{ width: '100%' }}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary"
                 value={row.recipient}
                 onChange={(e) => updateRow(i, 'recipient', e.target.value)}
                 placeholder="0x…"
@@ -39,7 +39,7 @@ export function RosterEditor({
             <td>
               <input
                 type="text"
-                style={{ width: '100%' }}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary"
                 value={row.amount}
                 onChange={(e) => updateRow(i, 'amount', e.target.value)}
                 placeholder="2500"
