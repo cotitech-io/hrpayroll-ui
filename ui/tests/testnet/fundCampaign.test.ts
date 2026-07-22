@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { concatHex, getAbiItem, keccak256, toHex, zeroAddress, type Hex } from 'viem'
+import { getAbiItem, zeroAddress, type Hex } from 'viem'
 import { avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
 import { computePTokenTwoWayFees, estimateVaultTwoWayFees } from '../../src/lib/podFees'
 import type { RosterEntry } from '../../src/lib/merkle'
@@ -20,30 +20,26 @@ import {
 
 // End-to-end campaign FUNDING against the real networks, mirroring useFundCampaign:
 // portal-seed pToken → public transfer into the facade → settle → requestCreditPool →
-// wait for PoolCredited / poolCreditedTotal (iter08-thin-fuji-facade).
+// wait for PoolCredited / poolCreditedTotal.
 // Budget: 500 of PRIVATE_KEY3's tokens per run, distributed to the two roster accounts
 // below (250 pMTT each).
 //
-// Because PRIVATE_KEY3's own pMTT may be locked from earlier stuck transfers, the seed
-// spends PRIVATE_KEY3's budget from its PUBLIC MTT instead: a PrivacyPortal deposit
-// (plain-amount mint) minting fresh pMTT straight to the funder, which then funds the
-// facade via PodERC20's public `transfer(to, uint256, uint256)` overload. Encrypted
-// `transfer(to, itUint256, …)` currently leaves senders pending forever on Fuji↔COTI
-// testnet (callback never lands), so the fund path matches the mint path: plaintext
-// amount on the wire, private balances still garbled on-chain.
+// The SAME wallet that creates the campaign (PRIVATE_KEY3) also funds it: portal
+// deposit mints pMTT straight to the employer, which then funds the facade via
+// PodERC20's public `transfer(to, uint256, uint256)` overload. The old derived-funder
+// rotation (PAYROLL_TEST_FUNDER_SALT, v1–v5) existed because PRIVATE_KEY3's account was
+// stuck pending on the OLD pToken from encrypted-transfer experiments; the 2026-07-21
+// pToken redeploy started that account fresh (verified pending:false 2026-07-22).
+// Encrypted `transfer(to, itUint256, …)` still leaves senders pending forever on
+// Fuji↔COTI testnet, so the fund path stays plaintext-amount on the wire.
 //
-// iter08 (2026-07-19): ackPoolCredit / local Fuji MpcCore at 0x64 are gone. After settle,
-// the campaign admin calls requestCreditPool(amount) with inboxFeeWei; COTI creditPool
-// callbacks onPoolCredited and increments poolCreditedTotal.
+// After settle, the campaign admin calls requestCreditPool(amount, callbackFeeWei);
+// COTI creditPool callbacks onPoolCredited and increments poolCreditedTotal.
 //
-// If a funder is left pending, bump PAYROLL_TEST_FUNDER_SALT (v1–v3 were burned).
-//
-// Requires in the repo-root .env (helpers load ../../../.env — not ui/.env.local):
-//   PRIVATE_KEY3              — employer/admin; PrivatePayrollCoti owner; pays the 500 MTT
-//                               seed and the funder's one-time gas top-ups.
+// Requires in the repo-root .env (helpers load ../../.env — not .env.local):
+//   PRIVATE_KEY3              — employer/admin/funder; PrivatePayrollCoti owner; pays the
+//                               500 MTT seed.
 //   PRIVATE_AES_KEY_TESTNET   — PRIVATE_KEY3's AES key (COTI onboard + decrypt Fuji pToken).
-//   PAYROLL_TEST_FUNDER_SALT  — optional; rotates the derived funder account (default v4).
-//   PRIVATE_AES_KEY_FUNDER_<SALT>_TESTNET — optional pin for the funder's AES key.
 
 const EMPLOYEE_A = '0xAb81c57CCc578a5636BFF47B896BEC6Af1c30012' as const
 const EMPLOYEE_B = '0xF505c61776e8234Ce45C59D7e28d074D9d023DFe' as const
@@ -53,14 +49,7 @@ const ROSTER: RosterEntry[] = [
   { index: 1, recipient: EMPLOYEE_B, amount: 250n * PMTT },
 ]
 
-const FUNDER_GAS_FUJI = 50_000_000_000_000_000n // 0.05 AVAX
-const FUNDER_GAS_COTI = 1_000_000_000_000_000_000n // 1 COTI (onboarding tx)
-
 const key3 = envPrivateKey('PRIVATE_KEY3')
-const FUNDER_SALT = process.env.PAYROLL_TEST_FUNDER_SALT ?? 'v4'
-const funderKey = key3
-  ? (keccak256(concatHex([key3, toHex(`hrpayroll-testnet-funder-${FUNDER_SALT}`)])) as Hex)
-  : undefined
 
 describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
   let employer: TestnetSigner
@@ -69,27 +58,11 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
   let funderAesKey: string
 
   beforeAll(async () => {
+    // Employer creates AND funds — one wallet for the whole flow.
     employer = makeSigner(key3!)
-    funder = makeSigner(funderKey!)
+    funder = employer
     employerAesKey = await resolveAesKey('PRIVATE_AES_KEY_TESTNET', key3!)
-
-    // One-time (per funder account) gas top-ups from the employer — plain native transfers,
-    // unaffected by the pToken pending lock.
-    const funderAddr = funder.account.address as Hex
-    if ((await employer.fujiPublic.getBalance({ address: funderAddr })) < FUNDER_GAS_FUJI / 2n) {
-      const hash = await employer.fujiWallet.sendTransaction({ to: funderAddr, value: FUNDER_GAS_FUJI })
-      await employer.fujiPublic.waitForTransactionReceipt({ hash })
-      console.info(`[testnet] topped up funder ${funderAddr} with 0.05 AVAX`)
-    }
-    if ((await employer.cotiPublic.getBalance({ address: funderAddr })) < FUNDER_GAS_COTI / 2n) {
-      const hash = await employer.cotiWallet.sendTransaction({ to: funderAddr, value: FUNDER_GAS_COTI })
-      await employer.cotiPublic.waitForTransactionReceipt({ hash })
-      console.info(`[testnet] topped up funder ${funderAddr} with 1 COTI`)
-    }
-
-    // Needs COTI gas in place first (the recovery path submits an onboarding tx).
-    // Env name is salt-scoped so a pinned key can't leak across funder rotations.
-    funderAesKey = await resolveAesKey(`PRIVATE_AES_KEY_FUNDER_${FUNDER_SALT.toUpperCase()}_TESTNET`, funderKey!)
+    funderAesKey = employerAesKey
   })
 
   it('seeds the funder via portal deposit, funds the campaign, and credits the COTI pool', async () => {
@@ -253,7 +226,7 @@ describe.skipIf(!key3)('fund-campaign flow on live Fuji + COTI testnet', () => {
     expect(
       poolCredited,
       `Timed out waiting for PoolCredited after requestCreditPool (tx ${creditHash}). ` +
-        'See ui/docs/fundCampaign.md.',
+        'See vendor/hrpayroll-ui/docs/fundCampaign.md.',
     ).toBe(true)
 
     // 4. The funder spent exactly the seeded budget — nothing more, nothing less.

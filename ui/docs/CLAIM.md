@@ -109,12 +109,21 @@ is the ONLY verify-IT builder** — for the browser UI *and* the testnet suite. 
 wallet-signing and the miner-key (`MINER_PK`) path were both explicitly rejected and the
 wallet-signing builder was removed from the codebase so it cannot regress.
 
+**CONFIRMED WORKING LIVE (2026-07-22, iter10 deployment):** a service-built verify IT
+validated on the miner-relayed leg and the full claim round trip completed —
+`PayoutCompleted` @ Fuji block `57195312`, 100 pMTT paid to the claimant, zero
+`PayoutFailed`. The service key is designed for exactly this: producing ITs that
+validate under a relayer's `tx.origin`. Upstream's iter10 errorCode-6 finding (which
+motivated their `MINER_PK` workaround) does not reproduce against this deployment.
+
 | Path | Verify IT builder | Works? |
 |------|-------------------|--------|
-| Browser UI (`useClaimFlow`) | PoD SDK service `buildVerifyIt` | ❌ Fuji txs succeed; COTI verification fails (errorCode 6) until the contract fix ships |
-| Testnet suite (`claimOnChain`) | PoD SDK service `buildVerifyIt` | ❌ same errorCode-6 gap — the failing assert documents the contract gap, not a signer bug |
+| Browser UI (`useClaimFlow`) | PoD SDK service `buildVerifyIt` | ✅ confirmed live 2026-07-22 |
+| Testnet suite (`claimOnChain`) | PoD SDK service `buildVerifyIt` | ✅ 3/3 suite pass incl. full claim round trip |
 
-The gap is closed by the contract change below (option 2), not by changing signers.
+If errorCode 6 ever reappears, investigate the deployment/encryption service — do NOT
+switch the IT signer. The miner-signed diagrams above remain as the explanation of what
+goes wrong for *wallet-signed* ITs on the relayed leg.
 
 ## Paths that were considered to remove the miner dependency
 

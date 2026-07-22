@@ -109,10 +109,17 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
       // Wait for the actual async result — a completed `Transfer` (success) or `TransferFailed`
       // (failure) event — instead of a balance-pending flag, which never reflects the
       // *receiver's* in-flight state.
+      //
+      // IMPORTANT: terminal outcomes (TransferFailed) must be captured OUTSIDE the try/catch —
+      // the catch exists only to ride out transient RPC errors (429s/CORS). A previous version
+      // threw the failure from inside the try, so its own catch swallowed it and the modal sat
+      // in "waiting" until a generic timeout instead of reporting the real on-chain reason
+      // (seen live 2026-07-22: "PodErc20CotiMother: insufficient balance" was never surfaced).
       stage('Waiting for COTI to credit the facade…')
       const settleStart = Date.now()
       const deadline1 = settleStart + POLL_TIMEOUT_MS
       let settled = false
+      let settleFailure: string | undefined
       let pollCount = 0
       while (Date.now() < deadline1) {
         pollCount += 1
@@ -139,7 +146,8 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
           })
           if (failedLogs.length > 0) {
             log('TransferFailed event found', failedLogs[0])
-            throw new Error(`pToken transfer to the facade failed on-chain: ${failedLogs[0].args.errorMsg}`)
+            settleFailure = String(failedLogs[0].args.errorMsg ?? 'unknown error')
+            break
           }
           if (transferLogs.length > 0) {
             log('Transfer event found — settled', transferLogs[0])
@@ -147,9 +155,19 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
             break
           }
         } catch (e) {
-          log('settle poll error (will keep polling until timeout)', e instanceof Error ? e.message : e)
+          log('settle poll RPC error (will keep polling until timeout)', e instanceof Error ? e.message : e)
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+      }
+      if (settleFailure) {
+        throw new Error(
+          `pToken transfer to the facade failed on-chain: ${settleFailure}. ` +
+            (settleFailure.includes('insufficient balance')
+              ? 'The connected wallet does not hold enough pMTT for this amount — acquire pMTT ' +
+                '(e.g. via a Privacy Portal deposit of MTT) and try again. The failed transfer ' +
+                'unwound cleanly; your account is not locked.'
+              : `The transfer request (tx ${transferHash}) was rejected during COTI settlement.`),
+        )
       }
       if (!settled) {
         log('TIMED OUT waiting for settlement', { pollCount, elapsedMs: Date.now() - settleStart, transferHash })
@@ -188,18 +206,27 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
       }
 
       stage('Waiting for COTI pool credit callback…')
+      // runId scopes the vault's PoolCreditFailed events to this campaign (indexed topic).
+      const facadeRunId = await publicClient.readContract({ ...facade, functionName: 'runId' })
       const creditStart = Date.now()
       const deadline2 = creditStart + POLL_TIMEOUT_MS
       let credited = false
+      let creditFailure: string | undefined
       let creditPoll = 0
       while (Date.now() < deadline2) {
         creditPoll += 1
         try {
-          const [total, poolLogs] = await Promise.all([
+          const [total, poolLogs, creditFailedLogs] = await Promise.all([
             publicClient.readContract({ ...facade, functionName: 'poolCreditedTotal' }),
             publicClient.getLogs({
               address: params.facadeAddress,
               event: getAbiItem({ abi: facade.abi, name: 'PoolCredited' }),
+              fromBlock: creditReceipt.blockNumber,
+            }),
+            publicClient.getLogs({
+              address: avaxContracts.payrollVault.address,
+              event: getAbiItem({ abi: avaxContracts.payrollVault.abi, name: 'PoolCreditFailed' }),
+              args: { runId: facadeRunId },
               fromBlock: creditReceipt.blockNumber,
             }),
           ])
@@ -208,15 +235,29 @@ export function useFundCampaign(onStage?: (stage: string) => void) {
             elapsedMs: Date.now() - creditStart,
             poolCreditedTotal: total.toString(),
             poolLogsFound: poolLogs.length,
+            creditFailedFound: creditFailedLogs.length,
           })
+          // Terminal outcomes break the loop and throw OUTSIDE the try — the catch is only
+          // for transient RPC errors (see the settle loop above for the war story).
+          if (creditFailedLogs.length > 0) {
+            log('PoolCreditFailed event found', creditFailedLogs[0])
+            creditFailure = `errorCode=${creditFailedLogs[0].args.errorCode}`
+            break
+          }
           if (total >= creditedBefore + params.amount || poolLogs.length > 0) {
             credited = true
             break
           }
         } catch (e) {
-          log('credit poll error (will keep polling until timeout)', e instanceof Error ? e.message : e)
+          log('credit poll RPC error (will keep polling until timeout)', e instanceof Error ? e.message : e)
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+      }
+      if (creditFailure) {
+        throw new Error(
+          `COTI rejected the pool credit (${creditFailure}, tx ${creditHash}). ` +
+            'The pMTT already reached the facade; retry "Request pool credit" once the cause is fixed.',
+        )
       }
       if (!credited) {
         log('TIMED OUT waiting for pool credit', { creditPoll, elapsedMs: Date.now() - creditStart, creditHash })

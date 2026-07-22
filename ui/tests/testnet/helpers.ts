@@ -482,9 +482,8 @@ const REQUEST_FAILED = 3
  *
  * The verify IT is built via the PoD SDK encryption service (buildVerifyIt) — the ONLY
  * sanctioned builder; never wallet-sign it with the employee key and never use a miner
- * key (see buildPayrollIt.ts invariant). Until the IT-less contract fix ships, COTI-side
- * verification of service-built ITs fails with errorCode 6 at the miner-origin validation
- * point — an accepted, documented gap (hrpayroll/ui/docs/CLAIM.md), not a signer bug.
+ * key (see buildPayrollIt.ts invariant). Confirmed working live 2026-07-22: full round
+ * trip completed with a service-built IT (PayoutCompleted @ Fuji block 57195312).
  */
 export async function claimOnChain(params: {
   claimant: TestnetSigner

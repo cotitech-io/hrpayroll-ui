@@ -68,14 +68,13 @@ function toItUint256Struct(encrypted: { ciphertext: unknown; signature: string }
 // encryption service (CotiPodCrypto). Never rebuild it with buildItUint256WithSigner +
 // the employee's wallet signature, and never reintroduce a miner-key signing path —
 // both were explicitly rejected (2026-07-22). Wallet-signed claim ITs cannot validate
-// on the miner-relayed leg anyway (COTI validates under the miner's tx.origin), and a
+// on the miner-relayed leg (COTI validates under the miner's tx.origin), and a
 // miner-signed IT leaks the salary to the miner operator.
 //
-// Known limitation until the IT-less contract fix ships (3-arg verifyAndCredit paying
-// the employer-registered amount — see hrpayroll/ui/docs/CLAIM.md): service-built ITs
-// decrypt to a mismatched plaintext at the miner-origin validation point, so COTI-side
-// claim verification fails with errorCode 6. That is an accepted, documented gap — the
-// fix is in the contracts, not in switching signers.
+// CONFIRMED WORKING LIVE 2026-07-22 against the iter10 deployment: a service-built IT
+// validated on the miner-relayed leg and the full claim round trip completed
+// (PayoutCompleted @ Fuji block 57195312, 100 pMTT to the claimant). The service key
+// is what makes relayed validation work — this is exactly its purpose.
 export async function buildVerifyIt(params: { amount: bigint; signerAddress: Hex }): Promise<ItUint256Struct> {
   const encrypted = (await CotiPodCrypto.encrypt(params.amount.toString(), 'testnet', DataType.itUint256, {
     contractAddress: cotiTestnetContracts.inbox.address,

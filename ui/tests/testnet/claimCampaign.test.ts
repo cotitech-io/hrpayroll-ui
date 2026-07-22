@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { concatHex, keccak256, toHex, type Hex } from 'viem'
+import { type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
 import type { RosterEntry } from '../../src/lib/merkle'
@@ -21,10 +21,9 @@ import {
 //
 // The verify IT is built via the PoD SDK encryption service (buildVerifyIt) — the only
 // sanctioned builder (no employee wallet-signing, no MINER_PK; see buildPayrollIt.ts).
-// KNOWN GAP until the IT-less contract fix ships (hrpayroll/ui/docs/CLAIM.md): COTI
-// validates the relayed IT under the miner's tx.origin, so verification fails with
-// errorCode 6 and this test's completion assert fails — that documents the contract
-// gap, it is NOT a reason to switch the IT signer.
+// Confirmed working live 2026-07-22 against the iter10 deployment (PayoutCompleted @
+// Fuji block 57195312). If this ever fails with errorCode 6 again, do NOT switch the
+// IT signer — investigate the deployment/service instead (hrpayroll/ui/docs/CLAIM.md).
 //
 // Requires in the repo-root .env:
 //   PRIVATE_KEY3            — employer / PrivatePayrollCoti owner (create + fund)
@@ -35,7 +34,9 @@ import {
 //                             NOTE: recovery via this repo's coti-ethers has been observed
 //                             to return a key that differs from the account's real network
 //                             key — always pin CLAIM_AES_KEY)
-//   PAYROLL_TEST_FUNDER_SALT — optional funder rotation (default v4)
+//
+// Funding uses the SAME wallet that creates the campaign (PRIVATE_KEY3) — the old
+// derived-funder rotation is gone (see fundCampaign.test.ts header).
 
 const claimPk = envPrivateKey('CLAIM_PK')
 const key3 = envPrivateKey('PRIVATE_KEY3')
@@ -45,14 +46,6 @@ const CLAIM_AMOUNT = 100n * PMTT
 const FACADE_ETH_TOPUP = 50_000_000_000_000_000n // 0.05 AVAX for claim inbox fees
 const CLAIMANT_GAS_FUJI = 50_000_000_000_000_000n
 const CLAIMANT_GAS_COTI = 1_000_000_000_000_000_000n
-const FUNDER_GAS_FUJI = 50_000_000_000_000_000n
-const FUNDER_GAS_COTI = 1_000_000_000_000_000_000n
-
-const FUNDER_SALT = process.env.PAYROLL_TEST_FUNDER_SALT ?? 'v4'
-const funderKey =
-  key3 != null
-    ? (keccak256(concatHex([key3, toHex(`hrpayroll-testnet-funder-${FUNDER_SALT}`)])) as Hex)
-    : undefined
 
 const ready = Boolean(claimPk && key3 && claimAddressEnv)
 
@@ -73,20 +66,17 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
       'CLAIM_ADDRESS must match the address derived from CLAIM_PK',
     ).toBe(claimAddress.toLowerCase())
 
+    // Employer creates AND funds — one wallet for the whole flow.
     employer = makeSigner(key3!)
-    funder = makeSigner(funderKey!)
+    funder = employer
     claimant = makeSigner(claimPk!)
 
     employerAesKey = await resolveAesKey('PRIVATE_AES_KEY_TESTNET', key3!)
-    funderAesKey = await resolveAesKey(
-      `PRIVATE_AES_KEY_FUNDER_${FUNDER_SALT.toUpperCase()}_TESTNET`,
-      funderKey!,
-    )
+    funderAesKey = employerAesKey
     claimantAesKey = await resolveAesKey('CLAIM_AES_KEY', claimPk!)
 
-    // Gas top-ups (employer → funder / claimant) for Fuji txs + COTI onboarding.
+    // Gas top-ups (employer → claimant) for Fuji txs + COTI onboarding.
     for (const [label, addr, fujiNeed, cotiNeed] of [
-      ['funder', funder.account.address as Hex, FUNDER_GAS_FUJI, FUNDER_GAS_COTI],
       ['claimant', claimAddress, CLAIMANT_GAS_FUJI, CLAIMANT_GAS_COTI],
     ] as const) {
       if ((await employer.fujiPublic.getBalance({ address: addr })) < fujiNeed / 2n) {
@@ -165,9 +155,10 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
       `Claim stuck after Fuji success — COTI verify/payout did not complete. ` +
         `claimTx=${result.claimHash} requestId=${result.requestId ?? 'n/a'} ` +
         `facade=${campaign.facadeAddress} runId=${campaign.runId}. ` +
-        `Check vault.payoutRequestStatus (1=Pending, 3=Failed). If Failed with errorCode 6: ` +
-        `that is the documented service-IT vs miner-tx.origin gap — fix is the IT-less ` +
-        `contract change (hrpayroll/ui/docs/CLAIM.md), NOT switching the IT signer.`,
+        `Check vault.payoutRequestStatus (1=Pending, 3=Failed). This path is confirmed ` +
+        `working with service-built ITs (2026-07-22) — if Failed with errorCode 6, ` +
+        `investigate the deployment/encryption service, do NOT switch the IT signer ` +
+        `(hrpayroll/ui/docs/CLAIM.md).`,
     ).toBe(true)
 
     const hasClaimed = await employer.fujiPublic.readContract({
