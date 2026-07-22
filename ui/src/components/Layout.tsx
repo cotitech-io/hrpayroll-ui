@@ -1,15 +1,14 @@
 import type { ReactNode } from 'react'
 import { NavLink, useLocation } from '@/lib/router-compat'
-import { Activity, Users, Building2, Lock, Unlock, ChevronRight } from 'lucide-react'
+import { Users, Building2, Lock, Unlock, ChevronRight } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { usePrivateUnlock } from '@coti-io/coti-wallet-plugin'
 import { CustomConnectButton } from './CustomConnectButton'
 import { cn } from '../lib/utils'
 
-type NavItem = { to: string; label: string; icon: typeof Activity; end?: boolean }
+type NavItem = { to: string; label: string; icon: typeof Users; end?: boolean }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Activity', icon: Activity, end: true },
   { to: '/employee', label: 'Employee', icon: Users },
   { to: '/organization', label: 'Organization', icon: Building2 },
 ]
@@ -102,13 +101,11 @@ function HeaderPrivateAccessSlot() {
 function Breadcrumb() {
   const { pathname } = useLocation()
   const current =
-    pathname === '/'
-      ? 'All Activity'
-      : pathname.startsWith('/employee')
-        ? 'Employee'
-        : pathname.startsWith('/organization')
-          ? 'Organization'
-          : 'Overview'
+    pathname.startsWith('/employee')
+      ? 'Employee'
+      : pathname.startsWith('/organization')
+        ? 'Organization'
+        : 'Overview'
 
   return (
     <div className="flex items-center gap-2 text-sm text-white/50">
