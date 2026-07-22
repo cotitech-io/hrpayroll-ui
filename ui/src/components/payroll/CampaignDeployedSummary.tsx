@@ -47,7 +47,7 @@ export function CampaignDeployedSummary({
       />
 
       <Button type="button" variant="secondary" onClick={onClose} className="mt-4">
-        Start another campaign
+        Start a new payroll
       </Button>
     </Modal>
   )
