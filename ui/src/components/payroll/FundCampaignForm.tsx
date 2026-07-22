@@ -55,7 +55,7 @@ export function FundCampaignForm({
           )
         }
       >
-        {fundCampaign.isPending ? 'Funding…' : 'Fund campaign'}
+        {fundCampaign.isPending ? 'Funding…' : 'Fund payroll'}
       </Button>
       {fundCampaign.isPending && stage && <p style={{ opacity: 0.7 }}>{stage}</p>}
       {fundCampaign.error && <InlineError>{(fundCampaign.error as Error).message}</InlineError>}

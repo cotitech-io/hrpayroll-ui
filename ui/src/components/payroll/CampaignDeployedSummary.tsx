@@ -22,7 +22,7 @@ export function CampaignDeployedSummary({
   const totalAmount = result.tree.packages.reduce((sum, pkg) => sum + pkg.amount, 0n)
 
   return (
-    <Modal open title="Campaign deployed" onClose={onClose} width="640px">
+    <Modal open title="Payroll deployed" onClose={onClose} width="640px">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
         <dt className="text-muted-foreground">Facade address</dt>
         <dd className="font-mono">{result.facadeAddress}</dd>
@@ -32,7 +32,7 @@ export function CampaignDeployedSummary({
         <dd className="break-all font-mono">{result.tree.root}</dd>
       </dl>
 
-      <h3 className="mb-2 mt-6 font-semibold">3. Fund campaign</h3>
+      <h3 className="mb-2 mt-6 font-semibold">3. Fund payroll</h3>
       <FundCampaignForm
         facadeAddress={result.facadeAddress}
         placeholder={(Number(totalAmount) / 10 ** PTOKEN_DECIMALS).toString()}
