@@ -92,7 +92,7 @@ export function useCreateCampaign(onStage?: (stage: string) => void) {
 
       // One tx replaces the old facade-deploy + vault.createRun + facade.wirePayroll
       // sequence — the factory does all three. No fees are stored anywhere; fund/claim/
-      // clawback quote PayrollVault.estimateFee() live at the time they're sent.
+      // clawback pass live inbox/pToken quotes (podFees.ts) as wei on each send (iter10).
       stage('Creating campaign via factory…')
       const createHash = await writeContractAsync({
         ...avaxContracts.payrollCampaignFactory,

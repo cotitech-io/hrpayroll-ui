@@ -68,6 +68,87 @@ export const PayrollVaultAbi = [
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "runId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClawbackCompleted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "runId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "errorCode",
+        "type": "uint64"
+      }
+    ],
+    "name": "ClawbackFailed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "runId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClawbackRequested",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "bytes32",
         "name": "requestId",
@@ -223,31 +304,6 @@ export const PayrollVaultAbi = [
         "type": "uint256"
       }
     ],
-    "name": "PoolCreditRequested",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "runId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
     "name": "PoolCreditCompleted",
     "type": "event"
   },
@@ -298,63 +354,7 @@ export const PayrollVaultAbi = [
         "type": "uint256"
       }
     ],
-    "name": "ClawbackRequested",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "runId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "ClawbackCompleted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "runId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "errorCode",
-        "type": "uint64"
-      }
-    ],
-    "name": "ClawbackFailed",
+    "name": "PoolCreditRequested",
     "type": "event"
   },
   {
@@ -390,6 +390,25 @@ export const PayrollVaultAbi = [
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "clawbackStatus",
+    "outputs": [
+      {
+        "internalType": "enum PayrollVault.RequestStatus",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -472,29 +491,6 @@ export const PayrollVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "estimateFee",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "totalFeeWei",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "targetFeeWei",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "callbackFeeWei",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "inbox",
     "outputs": [
       {
@@ -517,6 +513,32 @@ export const PayrollVaultAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "onClawbackAuthorized",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "onClawbackRejected",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -566,19 +588,6 @@ export const PayrollVaultAbi = [
         "type": "bytes"
       }
     ],
-    "name": "onPoolCredited",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
-    ],
     "name": "onPoolCreditRejected",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -592,20 +601,7 @@ export const PayrollVaultAbi = [
         "type": "bytes"
       }
     ],
-    "name": "onClawbackAuthorized",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
-    ],
-    "name": "onClawbackRejected",
+    "name": "onPoolCredited",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -662,22 +658,54 @@ export const PayrollVaultAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "runId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "callbackFeeLocalWei",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pTokenTotalFeeWei",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pTokenCallbackFeeWei",
+        "type": "uint256"
+      }
+    ],
+    "name": "requestClawback",
+    "outputs": [
+      {
         "internalType": "bytes32",
-        "name": "",
+        "name": "requestId",
         "type": "bytes32"
       }
     ],
-    "name": "clawbackStatus",
-    "outputs": [
-      {
-        "internalType": "enum PayrollVault.RequestStatus",
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -707,47 +735,6 @@ export const PayrollVaultAbi = [
       }
     ],
     "stateMutability": "payable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "runId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "callbackFeeLocalWei",
-        "type": "uint256"
-      }
-    ],
-    "name": "requestClawback",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "requestId",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "payable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "renounceOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -809,6 +796,16 @@ export const PayrollVaultAbi = [
       {
         "internalType": "uint256",
         "name": "callbackFeeLocalWei",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pTokenTotalFeeWei",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pTokenCallbackFeeWei",
         "type": "uint256"
       }
     ],
@@ -910,4 +907,4 @@ export const PayrollVaultAbi = [
     "stateMutability": "payable",
     "type": "receive"
   }
-] as const;
+] as const

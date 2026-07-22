@@ -83,3 +83,27 @@ export async function estimateVaultTwoWayFees(publicClient: PublicClient) {
     totalFeeWei: pad5Percent(targetFeeWei + callbackFeeWei),
   }
 }
+
+export type ClaimFeeQuote = {
+  inboxTotalFeeWei: bigint
+  inboxCallbackFeeWei: bigint
+  pTokenTotalFeeWei: bigint
+  pTokenCallbackFeeWei: bigint
+}
+
+// iter10 claim()/claimTo() carry all four fee quotes as arguments: the vault forwards the
+// inbox pair to sendTwoWayMessage (paid from facade float) and escrows the pToken pair for
+// the payout callback's public pToken.transfer (paid from vault float). Nothing is
+// re-quoted on-chain — these UI heuristics are the only fee source.
+export async function quoteClaimFees(publicClient: PublicClient): Promise<ClaimFeeQuote> {
+  const [inbox, pToken] = await Promise.all([
+    estimateVaultTwoWayFees(publicClient),
+    computePTokenTwoWayFees(publicClient),
+  ])
+  return {
+    inboxTotalFeeWei: inbox.totalFeeWei,
+    inboxCallbackFeeWei: inbox.callbackFeeWei,
+    pTokenTotalFeeWei: pToken.pTokenTransferFeeWei,
+    pTokenCallbackFeeWei: pToken.pTokenCallbackFeeWei,
+  }
+}

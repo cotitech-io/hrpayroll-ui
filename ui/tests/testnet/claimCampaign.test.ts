@@ -15,9 +15,9 @@ import {
   type TestnetSigner,
 } from './helpers'
 
-// End-to-end CLAIM against live Fuji + COTI, mirroring useClaimFlow / MyClaims:
+// End-to-end CLAIM against live Fuji + COTI, mirroring useClaimFlow / MyClaims (iter10):
 // create → fund (portal + requestCreditPool) → facade AVAX top-up →
-// submitPayload(verifyIt, proof) → claim → wait hasClaimed / payoutRequestStatus.
+// submitPayload(minerVerifyIt, proof) → claim(7 args) → wait hasClaimed / payoutRequestStatus.
 //
 // Requires in the repo-root .env:
 //   PRIVATE_KEY3            — employer / PrivatePayrollCoti owner (create + fund)
@@ -28,10 +28,16 @@ import {
 //                             NOTE: recovery via this repo's coti-ethers has been observed
 //                             to return a key that differs from the account's real network
 //                             key — always pin CLAIM_AES_KEY)
+//   MINER_PK                — the live PoD network miner's key (tx.origin of COTI inbox
+//                             batchProcessRequests; 0x075445b9…fb76 on today's testnet).
+//                             The verify IT must be signed by it — iter10 finding: any
+//                             other signer decrypts to a mismatched plaintext (errorCode 6).
+//   MINER_AES_KEY           — miner's COTI network AES key (else recovered via onboard)
 //   PAYROLL_TEST_FUNDER_SALT — optional funder rotation (default v4)
 
 const claimPk = envPrivateKey('CLAIM_PK')
 const key3 = envPrivateKey('PRIVATE_KEY3')
+const minerPk = envPrivateKey('MINER_PK') ?? envPrivateKey('_PRIVATE_KEY')
 const claimAddressEnv = process.env.CLAIM_ADDRESS?.trim()
 
 const CLAIM_AMOUNT = 100n * PMTT
@@ -47,15 +53,23 @@ const funderKey =
     ? (keccak256(concatHex([key3, toHex(`hrpayroll-testnet-funder-${FUNDER_SALT}`)])) as Hex)
     : undefined
 
-const ready = Boolean(claimPk && key3 && claimAddressEnv)
+const ready = Boolean(claimPk && key3 && claimAddressEnv && minerPk)
+if (claimPk && key3 && claimAddressEnv && !minerPk) {
+  console.warn(
+    '[testnet] claimCampaign skipped: MINER_PK (or _PRIVATE_KEY) not set — the iter10 verify IT ' +
+      'must be signed by the live network miner (0x075445b969e2a39e096dd1fbe9a323ae3353fb76).',
+  )
+}
 
 describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () => {
   let employer: TestnetSigner
   let funder: TestnetSigner
   let claimant: TestnetSigner
+  let miner: TestnetSigner
   let employerAesKey: string
   let funderAesKey: string
   let claimantAesKey: string
+  let minerAesKey: string
   let claimAddress: Hex
 
   beforeAll(async () => {
@@ -69,6 +83,7 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
     employer = makeSigner(key3!)
     funder = makeSigner(funderKey!)
     claimant = makeSigner(claimPk!)
+    miner = makeSigner(minerPk!)
 
     employerAesKey = await resolveAesKey('PRIVATE_AES_KEY_TESTNET', key3!)
     funderAesKey = await resolveAesKey(
@@ -76,6 +91,7 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
       funderKey!,
     )
     claimantAesKey = await resolveAesKey('CLAIM_AES_KEY', claimPk!)
+    minerAesKey = await resolveAesKey('MINER_AES_KEY', minerPk!)
 
     // Gas top-ups (employer → funder / claimant) for Fuji txs + COTI onboarding.
     for (const [label, addr, fujiNeed, cotiNeed] of [
@@ -148,7 +164,9 @@ describe.skipIf(!ready)('claim-campaign flow on live Fuji + COTI testnet', () =>
 
     const result = await claimOnChain({
       claimant,
-      aesKey: claimantAesKey,
+      employer,
+      miner,
+      minerAesKey,
       pkg,
       timeoutMs: 300_000,
     })

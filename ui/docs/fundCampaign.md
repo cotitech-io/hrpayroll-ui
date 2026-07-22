@@ -1,7 +1,7 @@
 # Fund campaign flow
 
 **Status: confirmed working on live (2026-07-20); addresses redeployed again
-2026-07-21 (same iter08-thin-fuji-facade architecture, not yet re-verified live).**
+2026-07-22 (same iter08-thin-fuji-facade architecture, not yet re-verified live).**
 iter08 redeploy removes Fuji-local `MpcCore` / `ackPoolCredit`. Fund path is PoD-shaped:
 `public pToken.transfer(facade) → requestCreditPool → COTI creditPool → onPoolCredited`.
 The 2026-07-20 redeploy additionally removed every baked-in fee constant
@@ -16,7 +16,7 @@ Source of truth: [coti-io/pod-dapp-ports](https://github.com/coti-io/pod-dapp-po
 [ITERATION_08_GAPS.md](https://github.com/coti-io/pod-dapp-ports/blob/main/sablier-payroll-pod/docs/iterations/ITERATION_08_GAPS.md).
 
 Reference facade from the production manifest (runId `1`):
-`0xd01e50071FDf432BA74552Ea0d0Cd22367461848`.
+`0x5EC2693A0f014D32917A9801999B07011b1A9030`.
 
 ---
 
@@ -43,16 +43,16 @@ doc + `tests/testnet/fundCampaign.test.ts` re-evaluate.
 
 ## Live deploy (Avalanche Fuji + COTI testnet)
 
-Manifest snapshot (`updatedAt` `2026-07-21T13:55:50.632Z`, `mode` production):
+Manifest snapshot (`updatedAt` `2026-07-22T08:42:57.415Z`, `mode` production):
 
 | Piece | Address |
 |-------|---------|
-| `payrollCampaignFactory` | `0x40eca0ffc86c83bcde80504926a1dd7f8d84a25b` |
-| `payrollVault` | `0x5c8f11c891bf884a153a98535a65f37903df509c` |
-| `payrollClaimStore` | `0x5889141489b4f4377cb575888231ebdd7f492064` |
-| `payrollCampaignFacade` (runId 1) | `0xd01e50071FDf432BA74552Ea0d0Cd22367461848` |
-| `privatePayrollCoti` | `0xd523915b48d7985837f5b10ffc6c41dc66313f04` |
-| `comptroller` | `0x920189a7688b1653573916438b3c3bf566c3c03f` |
+| `payrollCampaignFactory` | `0x056242ccb7c71165ba0c6e8d1a9b2330ec6aefd0` |
+| `payrollVault` | `0x41560d11e83369b24c9020a8ec59de98935be377` |
+| `payrollClaimStore` | `0xd4418977eaa75de172157b456bfb63c1cff297a9` |
+| `payrollCampaignFacade` (runId 1) | `0x5EC2693A0f014D32917A9801999B07011b1A9030` |
+| `privatePayrollCoti` | `0x81aa3b52ffcbb62bc4391008ceeb0965c0de8640` |
+| `comptroller` | `0xaaef4e27ab0213b826a0db994122f971aefafdff` |
 | `pToken` (pMTT) | `0xFC6283a9000d7D5Cf8A058A04A9ED90265Af1634` |
 | `underlying` (MTT) | `0x328e70e1c52662cd5f19f824fcb8b463d77a6686` |
 | `privacyPortal` | `0xf4100d21eB4B1a66aDde58A01D1E32356F268b3F` |
@@ -61,6 +61,15 @@ Manifest snapshot (`updatedAt` `2026-07-21T13:55:50.632Z`, `mode` production):
 | `owner` / `cotiOwner` | `0xdf9f8fca4591227c092fcbab45a846c19fb6d1ae` |
 
 ## Fees — no stored constants
+
+> **iter10 update (2026-07-22 deploy):** `PayrollVault.estimateFee()` itself is now GONE —
+> nothing is quoted on-chain anymore. `claim`/`claimTo` take four caller-quoted fee args
+> (`inboxTotalFeeWei, inboxCallbackFeeWei, pTokenTotalFeeWei, pTokenCallbackFeeWei`) and
+> `clawback`/`requestClawback` gained the pToken pair; the vault escrows the pToken quote
+> per-request and pays the payout callback's public `pToken.transfer` from its own AVAX
+> float (`payoutTo(to, amount, callbackFeeWei)`). The verify IT must be signed by the live
+> network miner (tx.origin of COTI `batchProcessRequests`) — see `buildVerifyItWithSigner`.
+> The description below documents the older 07-20/07-21 deploys.
 
 The 2026-07-19 manifest still had baked-in fee constants (`inboxFeeWei`,
 `callbackFeeWei`, `pTokenTransferFeeWei`, `pTokenCallbackFeeWei`) readable directly off
@@ -170,23 +179,23 @@ documented in pod-dapp-ports.
 
 ```bash
 # Factory → vault (iter08)
-cast call 0x40eca0ffc86c83bcde80504926a1dd7f8d84a25b "vault()(address)" \
+cast call 0x056242ccb7c71165ba0c6e8d1a9b2330ec6aefd0 "vault()(address)" \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
-# → 0x5c8f11c891bf884a153a98535a65f37903df509c
+# → 0x41560d11e83369b24c9020a8ec59de98935be377
 
 # Vault: live fee quote (estimateFee reads tx.gasprice — pass a real one or you get all
 # zeros back). --gas-price sets the eth_call's gas price, not an actual tx fee paid.
-cast call 0x5c8f11c891bf884a153a98535a65f37903df509c \
+cast call 0x41560d11e83369b24c9020a8ec59de98935be377 \
   "estimateFee()(uint256,uint256,uint256)" \
   --gas-price 2000000000 \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
 
 # Reference facade: no ackPoolCredit / no inboxFeeWei; has requestCreditPool + poolCreditedTotal
-cast call 0xd01e50071FDf432BA74552Ea0d0Cd22367461848 "poolCreditedTotal()(uint256)" \
+cast call 0x5EC2693A0f014D32917A9801999B07011b1A9030 "poolCreditedTotal()(uint256)" \
   --rpc-url https://api.avax-test.network/ext/bc/C/rpc
 
 # COTI twin
-cast call 0xd523915b48d7985837f5b10ffc6c41dc66313f04 "owner()(address)" \
+cast call 0x81aa3b52ffcbb62bc4391008ceeb0965c0de8640 "owner()(address)" \
   --rpc-url https://testnet.coti.io/rpc
 ```
 

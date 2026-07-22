@@ -24,14 +24,17 @@ import { JsonRpcProvider, Wallet as CotiEthersWallet } from '@coti-io/coti-ether
 import { COTI_TESTNET_CHAIN_ID, avaxContracts, cotiTestnetContracts } from '../../src/config/contracts'
 import { buildPayrollMerkleTree, type PayrollMerkleTree, type RosterEntry } from '../../src/lib/merkle'
 import {
-  buildClaimIt,
   buildRegisterLeafIt,
-  buildVerifyIt,
-  CLAIM_SELECTOR,
+  buildVerifyItWithSigner,
   type SignMessageAsync,
 } from '../../src/lib/buildPayrollIt'
 import { toClaimPackage, type ClaimPackage } from '../../src/lib/claimPackage'
-import { computePTokenTwoWayFees, COTI_REGISTER_LEAF_GAS, estimateVaultTwoWayFees } from '../../src/lib/podFees'
+import {
+  computePTokenTwoWayFees,
+  COTI_REGISTER_LEAF_GAS,
+  estimateVaultTwoWayFees,
+  quoteClaimFees,
+} from '../../src/lib/podFees'
 
 // Shared plumbing for the real-network (Fuji + COTI testnet) suites. Everything here reuses
 // the UI's production modules — merkle builder, IT builders, contracts config — swapping only
@@ -43,9 +46,9 @@ export const FUJI_RPC = 'https://api.avax-test.network/ext/bc/C/rpc'
 export const COTI_RPC = 'https://testnet.coti.io/rpc'
 export const PMTT = 10n ** 18n // 1 pMTT in wei (18 decimals)
 
-// From deployments/production-payroll-avalancheFuji.json (2026-07-21; underlying unchanged
-// since 2026-07-17). Test-seed infra only — the UI itself never touches the portal or the
-// public underlying, so these stay out of src/config/contracts.ts.
+// From deployments/production-payroll-avalancheFuji.json (2026-07-22; portal/underlying
+// unchanged since 2026-07-17). Test-seed infra only — the UI itself never touches the portal
+// or the public underlying, so these stay out of src/config/contracts.ts.
 export const PRIVACY_PORTAL = '0xf4100d21eB4B1a66aDde58A01D1E32356F268b3F' as const
 export const UNDERLYING_MTT = '0x328e70e1c52662cd5f19f824fcb8b463d77a6686' as const
 
@@ -474,17 +477,23 @@ const REQUEST_PENDING = 1
 const REQUEST_FAILED = 3
 
 /**
- * Employee claim path mirroring useClaimFlow (iter08): submitPayload(verifyIt, proof) →
- * claim → wait for hasClaimed / vault payoutRequestStatus.
+ * Employee claim path mirroring useClaimFlow (iter10): submitPayload(verifyIt, proof) →
+ * claim(index, recipient, proof, 4 fee quotes) → wait for hasClaimed / vault payoutRequestStatus.
+ *
+ * The verify IT must be MINER-signed (pod-dapp-ports iter10 finding: COTI validates it under
+ * the network miner's tx.origin during batchProcessRequests — claimant/service-signed ITs
+ * decrypt to a mismatched plaintext, errorCode 6). Pass the miner signer + its COTI AES key.
  */
 export async function claimOnChain(params: {
   claimant: TestnetSigner
-  aesKey: string
+  employer: TestnetSigner
+  miner: TestnetSigner
+  minerAesKey: string
   pkg: ClaimPackage
   timeoutMs?: number
 }): Promise<{ claimHash: Hex; requestId: Hex | undefined; completed: boolean }> {
-  const { claimant, aesKey, pkg, timeoutMs = 300_000 } = params
-  const { fujiPublic, fujiWallet, signMessageAsync } = claimant
+  const { claimant, employer, miner, minerAesKey, pkg, timeoutMs = 300_000 } = params
+  const { fujiPublic, fujiWallet } = claimant
   const address = claimant.account.address as Hex
   if (address.toLowerCase() !== pkg.recipient.toLowerCase()) {
     throw new Error(`CLAIM_PK address ${address} != package recipient ${pkg.recipient}`)
@@ -493,27 +502,37 @@ export async function claimOnChain(params: {
   const facade = { address: pkg.facadeAddress, abi: avaxContracts.payrollCampaignFacade.abi } as const
   const amount = BigInt(pkg.amount)
 
-  const [expired, alreadyClaimed, { totalFeeWei }, facadeBalance] = await Promise.all([
+  const [expired, alreadyClaimed, fees, facadeBalance, vaultBalance] = await Promise.all([
     fujiPublic.readContract({ ...facade, functionName: 'hasExpired' }),
     fujiPublic.readContract({ ...facade, functionName: 'hasClaimed', args: [BigInt(pkg.index)] }),
-    estimateVaultTwoWayFees(fujiPublic),
+    quoteClaimFees(fujiPublic),
     fujiPublic.getBalance({ address: pkg.facadeAddress }),
+    fujiPublic.getBalance({ address: avaxContracts.payrollVault.address }),
   ])
   if (expired) throw new Error('Campaign has expired.')
   if (alreadyClaimed) throw new Error(`Index ${pkg.index} already claimed.`)
-  if (facadeBalance < totalFeeWei) {
+
+  // iter10 float model: facade pays the claim's inbox leg; vault pays the payout callback's
+  // public pToken transfer. Employer tops up the facade when short (mirrors pod-live e2e).
+  if (facadeBalance < fees.inboxTotalFeeWei) {
+    const topUp = fees.inboxTotalFeeWei - facadeBalance + 10n ** 15n
+    const topUpHash = await employer.fujiWallet.sendTransaction({ to: pkg.facadeAddress, value: topUp })
+    const topUpReceipt = await fujiPublic.waitForTransactionReceipt({ hash: topUpHash })
+    if (topUpReceipt.status !== 'success') throw new Error(`facade float top-up reverted (tx ${topUpHash}).`)
+    console.info(`[testnet] facade floated +${topUp} wei for inbox fee`)
+  }
+  if (vaultBalance < fees.pTokenTotalFeeWei) {
     throw new Error(
-      `Facade ${pkg.facadeAddress} needs ≥ ${totalFeeWei} wei AVAX for inbox fee (has ${facadeBalance}).`,
+      `PayrollVault ${avaxContracts.payrollVault.address} needs ≥ ${fees.pTokenTotalFeeWei} wei AVAX ` +
+        `float for the payout pToken transfer (has ${vaultBalance}).`,
     )
   }
 
-  const signerParams = { aesKey, signerAddress: address, signMessageAsync }
-  const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
-  const claimIt = await buildClaimIt({
+  const verifyIt = await buildVerifyItWithSigner({
     amount,
-    ...signerParams,
-    facadeAddress: pkg.facadeAddress,
-    selector: CLAIM_SELECTOR,
+    aesKey: minerAesKey,
+    signerAddress: miner.account.address as Hex,
+    signMessageAsync: miner.signMessageAsync,
   })
   const proofHandle = encodeAbiParameters(
     [{ type: 'bytes32[]' }, { type: 'uint256' }],
@@ -533,8 +552,17 @@ export async function claimOnChain(params: {
   const claimHash = await fujiWallet.writeContract({
     ...facade,
     functionName: 'claim',
-    args: [BigInt(pkg.index), pkg.recipient, claimIt, pkg.proof],
+    args: [
+      BigInt(pkg.index),
+      pkg.recipient,
+      pkg.proof,
+      fees.inboxTotalFeeWei,
+      fees.inboxCallbackFeeWei,
+      fees.pTokenTotalFeeWei,
+      fees.pTokenCallbackFeeWei,
+    ],
     value: minFeeWei,
+    gas: 8_000_000n,
   })
   const claimReceipt = await fujiPublic.waitForTransactionReceipt({ hash: claimHash })
   if (claimReceipt.status !== 'success') throw new Error(`claim reverted (tx ${claimHash}).`)

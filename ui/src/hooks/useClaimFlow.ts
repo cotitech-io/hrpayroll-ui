@@ -1,11 +1,11 @@
 import { useMutation } from '@tanstack/react-query'
-import { useAccount, usePublicClient, useSignMessage, useWriteContract } from 'wagmi'
+import { useAccount, usePublicClient, useWriteContract } from 'wagmi'
 import { encodeAbiParameters, getAbiItem, type Hex } from 'viem'
 import { usePrivacyBridgeUnlock } from '@coti-io/coti-wallet-plugin'
 import { avaxContracts, AVAX_CHAIN_ID } from '../config/contracts'
-import { buildClaimIt, buildVerifyIt, CLAIM_SELECTOR, CLAIM_TO_SELECTOR } from '../lib/buildPayrollIt'
+import { buildVerifyIt } from '../lib/buildPayrollIt'
 import type { ClaimPackage } from '../lib/claimPackage'
-import { estimateVaultTwoWayFees } from '../lib/podFees'
+import { quoteClaimFees } from '../lib/podFees'
 
 const POLL_INTERVAL_MS = 3_000
 const POLL_TIMEOUT_MS = 300_000
@@ -28,7 +28,6 @@ function log(...args: unknown[]) {
 export function useClaimFlow(onStage?: (stage: string) => void) {
   const { address } = useAccount()
   const { sessionAesKey } = usePrivacyBridgeUnlock()
-  const { signMessageAsync } = useSignMessage()
   const { writeContractAsync } = useWriteContract()
   const publicClient = usePublicClient({ chainId: AVAX_CHAIN_ID })
 
@@ -56,36 +55,39 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
         )
       }
 
-      const [expired, alreadyClaimed, { totalFeeWei }, facadeBalance] = await Promise.all([
+      const [expired, alreadyClaimed, fees, facadeBalance, vaultBalance] = await Promise.all([
         publicClient.readContract({ ...facade, functionName: 'hasExpired' }),
         publicClient.readContract({ ...facade, functionName: 'hasClaimed', args: [BigInt(pkg.index)] }),
-        estimateVaultTwoWayFees(publicClient),
+        quoteClaimFees(publicClient),
         publicClient.getBalance({ address: pkg.facadeAddress }),
+        publicClient.getBalance({ address: avaxContracts.payrollVault.address }),
       ])
       if (expired) throw new Error('This campaign has expired; claims are closed.')
       if (alreadyClaimed) throw new Error('This index was already claimed.')
-      // Facade pays vault.requestPayout{value: totalFeeWei} from its own balance (not msg.value) —
-      // quoted live from the inbox (oracle prices × tx.gasprice); no stored constant.
-      if (facadeBalance < totalFeeWei) {
+      // iter10: the facade pays vault.requestPayout{value: inboxTotalFeeWei} from its own
+      // balance, and the vault later pays the payout callback's public pToken.transfer
+      // {value: pTokenTotalFeeWei} from ITS balance. Both are pre-funded native floats;
+      // nothing is quoted on-chain anymore.
+      if (facadeBalance < fees.inboxTotalFeeWei) {
         throw new Error(
-          `Campaign facade needs at least ${totalFeeWei} wei AVAX for the claim inbox fee ` +
+          `Campaign facade needs at least ${fees.inboxTotalFeeWei} wei AVAX for the claim inbox fee ` +
             `(has ${facadeBalance}). Ask the organization to top up the facade with native AVAX.`,
         )
       }
+      if (vaultBalance < fees.pTokenTotalFeeWei) {
+        throw new Error(
+          `PayrollVault needs at least ${fees.pTokenTotalFeeWei} wei AVAX float for the payout ` +
+            `pToken transfer (has ${vaultBalance}). Ask the organization to top up the vault.`,
+        )
+      }
 
-      const signerParams = { aesKey: sessionAesKey, signerAddress: address, signMessageAsync }
-
-      // verifyIt → COTI verifyAndCredit (real), built via the PoD encryption service (service-
-      // signed, not wallet-signed — see buildVerifyIt's doc comment). claimIt is still required
-      // by the facade ABI but ignored on-chain (iter08); payout IT was removed from ClaimStore.
+      // verifyIt → COTI verifyAndCredit (real), built via the PoD encryption service. Known
+      // limitation: COTI validates this IT under the network miner's tx.origin, so a
+      // service-signed IT currently decrypts to a mismatched plaintext there (errorCode 6,
+      // payout request → Failed). Node-side tooling holding the miner key should use
+      // buildVerifyItWithSigner instead — see buildPayrollIt.ts.
       stage('Building encrypted claim inputs…')
       const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
-      const claimIt = await buildClaimIt({
-        amount,
-        ...signerParams,
-        facadeAddress: facade.address,
-        selector: to ? CLAIM_TO_SELECTOR : CLAIM_SELECTOR,
-      })
 
       const proofHandle = encodeAbiParameters(
         [{ type: 'bytes32[]' }, { type: 'uint256' }],
@@ -108,18 +110,26 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
       })
 
       stage('Submitting claim…')
+      // iter10 claim/claimTo: (index, recipient|to, proof, inboxTotal, inboxCallback,
+      // pTokenTotal, pTokenCallback) — all four fee wei values quoted above.
+      const feeArgs = [
+        fees.inboxTotalFeeWei,
+        fees.inboxCallbackFeeWei,
+        fees.pTokenTotalFeeWei,
+        fees.pTokenCallbackFeeWei,
+      ] as const
       const claimHash = to
         ? await writeContractAsync({
             ...facade,
             functionName: 'claimTo',
-            args: [BigInt(pkg.index), to, claimIt, pkg.proof],
+            args: [BigInt(pkg.index), to, pkg.proof, ...feeArgs],
             value: minFeeWei,
             chainId: AVAX_CHAIN_ID,
           })
         : await writeContractAsync({
             ...facade,
             functionName: 'claim',
-            args: [BigInt(pkg.index), pkg.recipient, claimIt, pkg.proof],
+            args: [BigInt(pkg.index), pkg.recipient, pkg.proof, ...feeArgs],
             value: minFeeWei,
             chainId: AVAX_CHAIN_ID,
           })

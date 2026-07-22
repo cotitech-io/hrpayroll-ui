@@ -7,38 +7,40 @@ import { PodErc20MintableAbi } from "../abis/PodErc20Mintable";
 import { PrivatePayrollCotiAbi } from "../abis/PrivatePayrollCoti";
 
 // Live testnet deployment (Avalanche Fuji = client chain, COTI testnet = MPC server chain).
-// Redeployed 2026-07-21 — pod-dapp-ports iter08-thin-fuji-facade
-// (deployments/production-payroll-avalancheFuji.json, runId 1, same architecture as
-// the 2026-07-20 redeploy — only addresses moved):
+// Redeployed 2026-07-22 08:42 UTC — pod-dapp-ports iteration 10 (commit a9fe8e9,
+// deployments/production-payroll-avalancheFuji.json; supersedes the same-morning 08:26 deploy).
 //   fundPath: public pToken.transfer(facade) → requestCreditPool → COTI creditPool
-//   claimPath: claim → COTI verifyAndCredit → public payoutTo(uint256)
-// Facade no longer calls local MpcCore at 0x64 on Fuji.
-// Inbox fees are never baked in: quote live via PayrollVault.estimateFee() (oracle prices ×
-// tx.gasprice) — the old setInboxFees/inboxFeeWei/payoutCallbackFeeWei constants are gone.
+//   claimPath: claim(7 args) → COTI verifyAndCredit → public payoutTo(to, amount, callbackFeeWei)
+// iter10 removed ALL on-chain fee estimation (vault.estimateFee is gone): claim/claimTo take
+// four caller-quoted fee args (inboxTotal/inboxCallback/pTokenTotal/pTokenCallback wei) which
+// the vault escrows per-request; clawback gained the two pToken fee args. Quote live via the
+// inbox's calculateTwoWayFeeRequiredInLocalToken (podFees.ts gas/size heuristics).
+// The claim inbox leg is paid from facade float; the payout-callback pToken leg from vault
+// float (both pre-funded with native AVAX — see tests/testnet/helpers.ts claim flow).
 export const AVAX_CHAIN_ID = 43113; // Avalanche Fuji
 export const COTI_TESTNET_CHAIN_ID = 7082400;
 
 export const avaxContracts = {
   payrollVault: {
-    address: "0x5c8f11c891bf884a153a98535a65f37903df509c",
+    address: "0x41560d11e83369b24c9020a8ec59de98935be377",
     abi: PayrollVaultAbi,
   },
   // Single entrypoint for campaign creation. Fees are never stored here — callers quote
-  // PayrollVault.estimateFee() live at use time.
+  // the inbox's calculateTwoWayFeeRequiredInLocalToken live at use time (podFees.ts).
   payrollCampaignFactory: {
-    address: "0x40eca0ffc86c83bcde80504926a1dd7f8d84a25b",
+    address: "0x056242ccb7c71165ba0c6e8d1a9b2330ec6aefd0",
     abi: PayrollCampaignFactoryAbi,
   },
   payrollCampaignFacade: {
-    // ABI host + reference campaign facade from the iter08 deploy (runId 1, pMTT).
+    // ABI host + reference campaign facade from the iter10 deploy (runId 1, pMTT).
     // Employee claims resolve the target facade from the claim package's facadeAddress —
     // this address is not the only campaign the UI can talk to. Activity scans every
     // vault-linked facade.
-    address: "0xd01e50071FDf432BA74552Ea0d0Cd22367461848",
+    address: "0x5EC2693A0f014D32917A9801999B07011b1A9030",
     abi: PayrollCampaignFacadeAbi,
   },
   payrollClaimStore: {
-    address: "0x5889141489b4f4377cb575888231ebdd7f492064",
+    address: "0xd4418977eaa75de172157b456bfb63c1cff297a9",
     abi: PodClaimStoreAbi,
   },
   pToken: {
@@ -46,12 +48,13 @@ export const avaxContracts = {
     // PodErc20MintableInitializable implementation as the previous pUSDC deployment
     // (0xcee95959573618ee8464526c591fe70ae56ab293), so the existing ABI still applies.
     // Unlike pUSDC (6 decimals), pMTT uses 18 — see PTOKEN_DECIMALS in the pages that display it.
-    // Redeployed again 2026-07-21 (new proxy instance); decimals/ABI unchanged.
+    // Redeployed 2026-07-21 (new proxy instance); carried forward unchanged in the
+    // 2026-07-22 redeploy. Decimals/ABI unchanged.
     address: "0xFC6283a9000d7D5Cf8A058A04A9ED90265Af1634",
     abi: PodErc20MintableAbi,
   },
   comptroller: {
-    address: "0x920189a7688b1653573916438b3c3bf566c3c03f",
+    address: "0xaaef4e27ab0213b826a0db994122f971aefafdff",
   },
   // Same address as cotiTestnetContracts.inbox — PoD inbox contracts deploy deterministically
   // to identical addresses across chains. Used by the fund flow's pToken fee computation.
@@ -63,7 +66,7 @@ export const avaxContracts = {
 
 export const cotiTestnetContracts = {
   privatePayrollCoti: {
-    address: "0xd523915b48d7985837f5b10ffc6c41dc66313f04",
+    address: "0x81aa3b52ffcbb62bc4391008ceeb0965c0de8640",
     abi: PrivatePayrollCotiAbi,
   },
   mpcExecutor: {

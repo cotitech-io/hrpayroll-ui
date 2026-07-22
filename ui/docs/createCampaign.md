@@ -1,8 +1,8 @@
 # Create campaign flow
 
 **Status: working** on Avalanche Fuji + COTI testnet (addresses: iter08 redeploy
-2026-07-21; reference facade runId `1`:
-`0xd01e50071FDf432BA74552Ea0d0Cd22367461848`).
+2026-07-22; reference facade runId `1`:
+`0x5EC2693A0f014D32917A9801999B07011b1A9030`).
 
 COTI mempool can drop `registerRun` / `registerLeaf` txs; the test helper retries with fee
 bumps. The UI hook does not yet auto-retry — a dropped COTI tx leaves an **orphan facade**
@@ -111,11 +111,11 @@ flowchart LR
 
 | Piece | Address / source |
 |-------|------------------|
-| Factory (Fuji) | `0x40eca0ffc86c83bcde80504926a1dd7f8d84a25b` |
-| PrivatePayrollCoti | `0xd523915b48d7985837f5b10ffc6c41dc66313f04` |
+| Factory (Fuji) | `0x056242ccb7c71165ba0c6e8d1a9b2330ec6aefd0` |
+| PrivatePayrollCoti | `0x81aa3b52ffcbb62bc4391008ceeb0965c0de8640` |
 | Reference facade (runId 1) | `src/config/contracts.ts` |
 
-Addresses current as of the 2026-07-21 redeploy
+Addresses current as of the 2026-07-22 redeploy
 (`deployments/production-payroll-avalancheFuji.json`); always prefer
 `src/config/contracts.ts` over this table if they ever drift.
 
