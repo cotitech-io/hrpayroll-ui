@@ -104,14 +104,19 @@ onboards correctly. Only the *relayed* claim leg breaks the `tx.origin` assumpti
 
 ## Current handling (as wired in this repo)
 
+**Decision (2026-07-22): the PoD SDK encryption service (`buildVerifyIt` / `CotiPodCrypto`)
+is the ONLY verify-IT builder** — for the browser UI *and* the testnet suite. Employee
+wallet-signing and the miner-key (`MINER_PK`) path were both explicitly rejected and the
+wallet-signing builder was removed from the codebase so it cannot regress.
+
 | Path | Verify IT builder | Works? |
 |------|-------------------|--------|
-| Testnet suite / node-side org tooling | `buildVerifyItWithSigner` + `MINER_PK` from `.env` | ✅ only working path today (team operates the miner) |
-| Browser UI (`useClaimFlow`) | encryption-service `buildVerifyIt` | ❌ Fuji tx succeeds; COTI verification fails (errorCode 6) — marked as known-broken in code comments |
+| Browser UI (`useClaimFlow`) | PoD SDK service `buildVerifyIt` | ❌ Fuji txs succeed; COTI verification fails (errorCode 6) until the contract fix ships |
+| Testnet suite (`claimOnChain`) | PoD SDK service `buildVerifyIt` | ❌ same errorCode-6 gap — the failing assert documents the contract gap, not a signer bug |
 
-`MINER_PK` must never ship in a browser bundle — it is infrastructure secret material.
+The gap is closed by the contract change below (option 2), not by changing signers.
 
-## Paths to make UI claims work without MINER_PK
+## Paths that were considered to remove the miner dependency
 
 1. **Verify-IT signing service** (near-term): a backend run by the miner operator returns
    miner-signed ITs on request `(amount, index)`. Forgery-safe (commitment check still

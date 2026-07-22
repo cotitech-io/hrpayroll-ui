@@ -25,7 +25,7 @@ import { COTI_TESTNET_CHAIN_ID, avaxContracts, cotiTestnetContracts } from '../.
 import { buildPayrollMerkleTree, type PayrollMerkleTree, type RosterEntry } from '../../src/lib/merkle'
 import {
   buildRegisterLeafIt,
-  buildVerifyItWithSigner,
+  buildVerifyIt,
   type SignMessageAsync,
 } from '../../src/lib/buildPayrollIt'
 import { toClaimPackage, type ClaimPackage } from '../../src/lib/claimPackage'
@@ -480,19 +480,19 @@ const REQUEST_FAILED = 3
  * Employee claim path mirroring useClaimFlow (iter10): submitPayload(verifyIt, proof) →
  * claim(index, recipient, proof, 4 fee quotes) → wait for hasClaimed / vault payoutRequestStatus.
  *
- * The verify IT must be MINER-signed (pod-dapp-ports iter10 finding: COTI validates it under
- * the network miner's tx.origin during batchProcessRequests — claimant/service-signed ITs
- * decrypt to a mismatched plaintext, errorCode 6). Pass the miner signer + its COTI AES key.
+ * The verify IT is built via the PoD SDK encryption service (buildVerifyIt) — the ONLY
+ * sanctioned builder; never wallet-sign it with the employee key and never use a miner
+ * key (see buildPayrollIt.ts invariant). Until the IT-less contract fix ships, COTI-side
+ * verification of service-built ITs fails with errorCode 6 at the miner-origin validation
+ * point — an accepted, documented gap (hrpayroll/ui/docs/CLAIM.md), not a signer bug.
  */
 export async function claimOnChain(params: {
   claimant: TestnetSigner
   employer: TestnetSigner
-  miner: TestnetSigner
-  minerAesKey: string
   pkg: ClaimPackage
   timeoutMs?: number
 }): Promise<{ claimHash: Hex; requestId: Hex | undefined; completed: boolean }> {
-  const { claimant, employer, miner, minerAesKey, pkg, timeoutMs = 300_000 } = params
+  const { claimant, employer, pkg, timeoutMs = 300_000 } = params
   const { fujiPublic, fujiWallet } = claimant
   const address = claimant.account.address as Hex
   if (address.toLowerCase() !== pkg.recipient.toLowerCase()) {
@@ -528,12 +528,7 @@ export async function claimOnChain(params: {
     )
   }
 
-  const verifyIt = await buildVerifyItWithSigner({
-    amount,
-    aesKey: minerAesKey,
-    signerAddress: miner.account.address as Hex,
-    signMessageAsync: miner.signMessageAsync,
-  })
+  const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
   const proofHandle = encodeAbiParameters(
     [{ type: 'bytes32[]' }, { type: 'uint256' }],
     [pkg.proof, BigInt(pkg.index)],

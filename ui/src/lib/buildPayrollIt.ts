@@ -64,15 +64,18 @@ function toItUint256Struct(encrypted: { ciphertext: unknown; signature: string }
 // Bound to (COTI inbox, batchProcessRequests) — the amount COTI's verifyAndCredit checks
 // against the registered roster commitment for this index.
 //
-// Unlike every other builder in this file, this IT is executed inside a *miner-relayed*
-// inbox call (batchProcessRequests), not a tx the signer submits themself: on COTI,
-// tx.origin during validateCiphertext is the NETWORK MINER, so the IT digest must be
-// signed by the miner's key over the miner's account (pod-dapp-ports iter10 finding:
-// encryption-service ITs validate but decrypt to a different plaintext → errorCode 6).
-// Node-side callers (tests, org tooling holding the miner key) should use
-// {buildVerifyItWithSigner}. This service-signed variant remains for the browser UI,
-// which cannot hold the miner key — claims built with it currently fail COTI-side
-// verification (payout request → Failed) until upstream changes the validation model.
+// INVARIANT (do not regress): the claim verify IT is ALWAYS built via the PoD SDK
+// encryption service (CotiPodCrypto). Never rebuild it with buildItUint256WithSigner +
+// the employee's wallet signature, and never reintroduce a miner-key signing path —
+// both were explicitly rejected (2026-07-22). Wallet-signed claim ITs cannot validate
+// on the miner-relayed leg anyway (COTI validates under the miner's tx.origin), and a
+// miner-signed IT leaks the salary to the miner operator.
+//
+// Known limitation until the IT-less contract fix ships (3-arg verifyAndCredit paying
+// the employer-registered amount — see hrpayroll/ui/docs/CLAIM.md): service-built ITs
+// decrypt to a mismatched plaintext at the miner-origin validation point, so COTI-side
+// claim verification fails with errorCode 6. That is an accepted, documented gap — the
+// fix is in the contracts, not in switching signers.
 export async function buildVerifyIt(params: { amount: bigint; signerAddress: Hex }): Promise<ItUint256Struct> {
   const encrypted = (await CotiPodCrypto.encrypt(params.amount.toString(), 'testnet', DataType.itUint256, {
     contractAddress: cotiTestnetContracts.inbox.address,
@@ -80,25 +83,6 @@ export async function buildVerifyIt(params: { amount: bigint; signerAddress: Hex
     userAddress: params.signerAddress,
   })) as EncryptedScalar
   return toItUint256Struct(encrypted)
-}
-
-// Miner-signed verify IT (pod-dapp-ports iter10 `buildOwnedIt256` equivalent): the signer
-// MUST be the live network miner (tx.origin of the COTI inbox's batchProcessRequests), and
-// aesKey its onboarded COTI network key. Bound to (COTI inbox, batchProcessRequests).
-export function buildVerifyItWithSigner(params: {
-  amount: bigint
-  aesKey: string
-  signerAddress: Hex
-  signMessageAsync: SignMessageAsync
-}): Promise<ItUint256Struct> {
-  return buildIt({
-    value: params.amount,
-    aesKey: params.aesKey,
-    signerAddress: params.signerAddress,
-    contractAddress: cotiTestnetContracts.inbox.address,
-    functionSelector: BATCH_PROCESS_SELECTOR,
-    signMessageAsync: params.signMessageAsync,
-  })
 }
 
 // Bound to (COTI PrivatePayrollCoti, registerLeaf) — the organization/admin calls registerLeaf

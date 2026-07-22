@@ -81,11 +81,11 @@ export function useClaimFlow(onStage?: (stage: string) => void) {
         )
       }
 
-      // verifyIt → COTI verifyAndCredit (real), built via the PoD encryption service. Known
-      // limitation: COTI validates this IT under the network miner's tx.origin, so a
-      // service-signed IT currently decrypts to a mismatched plaintext there (errorCode 6,
-      // payout request → Failed). Node-side tooling holding the miner key should use
-      // buildVerifyItWithSigner instead — see buildPayrollIt.ts.
+      // verifyIt → COTI verifyAndCredit, built via the PoD SDK encryption service — the
+      // ONLY sanctioned builder (never wallet-sign with the employee key, never a miner
+      // key; see the invariant in buildPayrollIt.ts). Known gap until the IT-less
+      // contract fix ships (docs/CLAIM.md): COTI validates the relayed IT under the
+      // miner's tx.origin, so verification fails with errorCode 6 → payout Failed.
       stage('Building encrypted claim inputs…')
       const verifyIt = await buildVerifyIt({ amount, signerAddress: address })
 
